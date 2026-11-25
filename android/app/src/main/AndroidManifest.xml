@@ -1,4 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Tunnel zum Gateway und Anmeldung -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Aktives Netz und dessen DNS-Server (Erkennung "im Haus", Netzwechsel) -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <application
         android:label="Virtuelle Computer"
         android:name="${applicationName}"

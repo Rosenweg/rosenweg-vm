@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
@@ -11,6 +12,7 @@ import '../anmeldung/rosenweg_konto.dart';
 import '../gateway/gateway.dart';
 import '../konfig.dart';
 import '../native/rwtunnel.dart';
+import 'haus_erkennung.dart';
 
 enum Lage { unbekannt, imHaus, unterwegs, keinZugang, test }
 
@@ -20,6 +22,8 @@ enum Lage { unbekannt, imHaus, unterwegs, keinZugang, test }
 /// zwar durch ihren eigenen WireGuard-Tunnel (im Prozess, ohne Systemrechte).
 /// Der Unterschied zwischen "im Haus" und "unterwegs" ist nur der Endpunkt:
 /// im Haus die LAN-Adresse des Gateways (kurzer Weg), sonst die oeffentliche.
+/// Welcher zuerst, sagt der TXT-Eintrag im internen DNS (haus_erkennung.dart);
+/// ob er geht, der WireGuard-Handshake.
 /// So gibt es einen einzigen Weg, eine Anmeldung und eine Pruefung — statt
 /// eines zweiten, ungetunnelten Wegs fuer zuhause, der eigene Zertifikate und
 /// eine zweite Proxmox-Anmeldung braeuchte.
@@ -82,35 +86,66 @@ class Netzlage extends ChangeNotifier {
 
     final konfig = antwort['config'] as String;
     final gw = antwort['gateway'] as String;
-    final intern = (antwort['endpoint_intern'] as String?) ?? '';
+    _intern = (antwort['endpoint_intern'] as String?) ?? '';
+    _extern = RegExp(r'^Endpoint = (.*)$', multiLine: true).firstMatch(konfig)?.group(1)?.trim() ?? '';
 
-    // Erst intern versuchen (im Haus), dann oeffentlich.
-    final versuche = <(Lage, String)>[
-      if (intern.isNotEmpty) (Lage.imHaus, konfig.replaceFirst(RegExp(r'^Endpoint = .*$', multiLine: true), 'Endpoint = $intern')),
-      (Lage.unterwegs, konfig),
-    ];
-    for (final (l, k) in versuche) {
-      final start = RwTunnel.i.starten(
-        wgQuick: k,
-        privat: paar.privat,
-        erlaubteZiele: ['$gw:80'],
-        spiceProxy: '$gw:3128',
-      );
-      final port = RwTunnel.i.weiterleitung('$gw:80');
-      final g = Gateway('http://127.0.0.1:$port', _konto.zugangsToken);
-      if (await g.erreichbar(zeit: Duration(seconds: l == Lage.imHaus ? 3 : 10))) {
-        gateway = g;
-        spiceProxy = 'http://rw:${start.geheimnis}@127.0.0.1:${start.port}';
-        lage = l;
-        _waechterStarten();
-        notifyListeners();
-        return;
-      }
+    final start = RwTunnel.i.starten(
+      wgQuick: konfig,
+      privat: paar.privat,
+      erlaubteZiele: ['$gw:80'],
+      spiceProxy: '$gw:3128',
+    );
+    final port = RwTunnel.i.weiterleitung('$gw:80');
+    final g = Gateway('http://127.0.0.1:$port', _konto.zugangsToken);
+    spiceProxy = 'http://rw:${start.geheimnis}@127.0.0.1:${start.port}';
+
+    final l = await _endpunktWaehlen(g);
+    if (l == null) {
       RwTunnel.i.stoppen();
+      spiceProxy = null;
+      lage = Lage.keinZugang;
+      notifyListeners();
+      throw TunnelFehler('Das Haus antwortet nicht. Bitte spaeter nochmals versuchen.');
     }
-    lage = Lage.keinZugang;
+    gateway = g;
+    lage = l;
+    _waechterStarten();
+    _netzBeobachten();
     notifyListeners();
-    throw TunnelFehler('Das Haus antwortet nicht. Bitte spaeter nochmals versuchen.');
+  }
+
+  String _intern = '', _extern = '';
+  final _erkennung = HausErkennung(zeit: Konfig.hausDnsZeit);
+  StreamSubscription<List<ConnectivityResult>>? _netzAbo;
+  Timer? _netzVerzoegerung;
+
+  /// DNS sagt, welchen Endpunkt die App zuerst versucht; ob er wirklich geht,
+  /// entscheidet der WireGuard-Handshake (Gateway antwortet durch den Tunnel).
+  Future<Lage?> _endpunktWaehlen(Gateway g) async {
+    final imHaus = await _erkennung.imHaus();
+    return endpunktWaehlen(
+      dnsImHaus: imHaus,
+      intern: _intern,
+      extern: _extern,
+      setzen: RwTunnel.i.endpunkt,
+      erreichbar: (l) => g.erreichbar(zeit: Duration(seconds: l == Lage.imHaus ? 3 : 10)),
+    );
+  }
+
+  /// Bei jedem Netzwechsel (WLAN zu, Mobilfunk an …) neu bestimmen und den
+  /// Endpunkt im laufenden Tunnel wechseln. Kurz warten, bis das neue Netz
+  /// seinen DNS hat.
+  void _netzBeobachten() {
+    _netzAbo ??= Connectivity().onConnectivityChanged.listen((_) {
+      _netzVerzoegerung?.cancel();
+      _netzVerzoegerung = Timer(const Duration(seconds: 2), () async {
+        final g = gateway;
+        if (g == null) return;
+        final l = await _endpunktWaehlen(g);
+        lage = l ?? Lage.keinZugang;
+        notifyListeners();
+      });
+    });
   }
 
   void _waechterStarten() {
@@ -140,6 +175,9 @@ class Netzlage extends ChangeNotifier {
   /// sofort ungueltig), dann Tunnel zu.
   Future<void> abbauen() async {
     _waechter?.cancel();
+    _netzVerzoegerung?.cancel();
+    await _netzAbo?.cancel();
+    _netzAbo = null;
     await gateway?.abmelden();
     gateway = null;
     spiceProxy = null;
@@ -152,6 +190,34 @@ class Netzlage extends ChangeNotifier {
   @override
   void dispose() {
     _waechter?.cancel();
+    _netzVerzoegerung?.cancel();
+    _netzAbo?.cancel();
     super.dispose();
   }
+}
+
+/// Reihenfolge und Rueckfall, ohne Tunnel testbar.
+///
+/// DNS-Treffer: zuerst der LAN-Endpunkt ("Im Haus"); scheitert der Handshake
+/// dort (fremdes Netz mit vorgetaeuschtem Eintrag, Gateway im LAN gestoert),
+/// der oeffentliche ("Unterwegs"). Kein Treffer: zuerst der oeffentliche; der
+/// LAN-Endpunkt bleibt nur als Rueckfall (z. B. Eintrag im DNS fehlt noch,
+/// oeffentlicher Weg aus dem Haus gesperrt). null = keiner geht.
+Future<Lage?> endpunktWaehlen({
+  required bool dnsImHaus,
+  required String intern,
+  required String extern,
+  required void Function(String endpunkt) setzen,
+  required Future<bool> Function(Lage lage) erreichbar,
+}) async {
+  final reihe = <(Lage, String)>[
+    if (dnsImHaus && intern.isNotEmpty) (Lage.imHaus, intern),
+    if (extern.isNotEmpty) (Lage.unterwegs, extern),
+    if (!dnsImHaus && intern.isNotEmpty) (Lage.imHaus, intern),
+  ];
+  for (final (l, ep) in reihe) {
+    setzen(ep);
+    if (await erreichbar(l)) return l;
+  }
+  return null;
 }

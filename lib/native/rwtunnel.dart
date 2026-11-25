@@ -14,6 +14,7 @@ class RwTunnel {
         _start = lib.lookupFunction<Pointer<Utf8> Function(Pointer<Utf8>), Pointer<Utf8> Function(Pointer<Utf8>)>('rwt_start'),
         _zustand = lib.lookupFunction<Pointer<Utf8> Function(), Pointer<Utf8> Function()>('rwt_zustand'),
         _weiter = lib.lookupFunction<Pointer<Utf8> Function(Pointer<Utf8>), Pointer<Utf8> Function(Pointer<Utf8>)>('rwt_weiterleitung'),
+        _endpunkt = lib.lookupFunction<Pointer<Utf8> Function(Pointer<Utf8>), Pointer<Utf8> Function(Pointer<Utf8>)>('rwt_endpunkt'),
         _stop = lib.lookupFunction<Void Function(), void Function()>('rwt_stop'),
         _frei = lib.lookupFunction<Void Function(Pointer<Utf8>), void Function(Pointer<Utf8>)>('rwt_frei');
 
@@ -24,6 +25,7 @@ class RwTunnel {
   final Pointer<Utf8> Function(Pointer<Utf8>) _start;
   final Pointer<Utf8> Function() _zustand;
   final Pointer<Utf8> Function(Pointer<Utf8>) _weiter;
+  final Pointer<Utf8> Function(Pointer<Utf8>) _endpunkt;
   final void Function() _stop;
   final void Function(Pointer<Utf8>) _frei;
 
@@ -87,6 +89,17 @@ class RwTunnel {
     final z = ziel.toNativeUtf8();
     try {
       return _lesen(_weiter(z))['port'] as int;
+    } finally {
+      malloc.free(z);
+    }
+  }
+
+  /// Endpunkt im laufenden Tunnel wechseln (WireGuard-Roaming: offene
+  /// Verbindungen, z. B. ein Bildschirm, bleiben bestehen).
+  void endpunkt(String ep) {
+    final z = ep.toNativeUtf8();
+    try {
+      _lesen(_endpunkt(z));
     } finally {
       malloc.free(z);
     }

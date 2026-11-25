@@ -35,6 +35,16 @@ Siehe [gateway/README.md](../gateway/README.md), Abschnitt „Einrichten“:
 - Firewall: hinein nur 51831/udp (alle) und 8080/tcp (nur CT 128);
   hinaus nur pve1–3:8006/3128, Authentik 443, DNS.
 
+## Interner DNS (UniFi-Gateway 100.64.2.1)
+
+Für die Erkennung „im Haus“: TXT-Eintrag **`location.rosenweg4303.ch`** mit
+dem Wert **`Rosenweg GBT`** (genau so, Gross-/Kleinschreibung zählt), **nur
+im internen DNS**, nicht bei Cloudflare. In UniFi: Einstellungen → Routing →
+DNS → Eintrag vom Typ TXT. Prüfen aus einem Hausnetz:
+`dig +short TXT location.rosenweg4303.ch` → `"Rosenweg GBT"`; von aussen
+darf nichts kommen. (Am 26.11.2026 lieferte der Resolver im Netz des
+Entwicklungs-Macs den Eintrag bereits.)
+
 ## Haupt-API (Website)
 
 Branch `vm-app-tunnel` (PR offen, nicht gemergt):

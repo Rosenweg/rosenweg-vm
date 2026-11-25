@@ -41,6 +41,7 @@ func Schluesselpaar() (privat, oeffentlich string, err error) {
 
 // Tunnel ist ein laufender Tunnel samt lokalem Proxy.
 type Tunnel struct {
+	peer  []byte // oeffentlicher Schluessel des Gegenuebers (fuer Endpunktwechsel)
 	dev   *device.Device
 	tnet  *netstack.Net
 	proxy *Proxy
@@ -79,7 +80,7 @@ func Start(k Konfig) (*Tunnel, error) {
 		dev.Close()
 		return nil, err
 	}
-	t := &Tunnel{dev: dev, tnet: tnet}
+	t := &Tunnel{dev: dev, tnet: tnet, peer: wg.peerPublic}
 	p, err := NeuerProxy(ProxyKonfig{
 		ErlaubteZiele: k.ErlaubteZiele,
 		SpiceProxy:    k.SpiceProxy,
@@ -135,6 +136,18 @@ func (t *Tunnel) waehlen(ctx context.Context, adresse string) (net.Conn, error) 
 // ProxyPort und ProxyGeheimnis braucht die App fuer "PROXY rw:<geheimnis>@127.0.0.1:<port>".
 func (t *Tunnel) ProxyPort() int         { return t.proxy.Port() }
 func (t *Tunnel) ProxyGeheimnis() string { return t.proxy.Geheimnis() }
+
+// EndpunktSetzen wechselt den Endpunkt des Gegenuebers im laufenden Tunnel
+// (z. B. im Haus LAN-Adresse des Gateways, unterwegs die oeffentliche).
+// WireGuard nennt das Roaming: Schluessel, Adressen und offene Verbindungen im
+// Tunnel bleiben, ein laufender Bildschirm reisst nicht ab.
+func (t *Tunnel) EndpunktSetzen(ep string) error {
+	ip, err := endpointAufloesen(ep)
+	if err != nil {
+		return err
+	}
+	return t.dev.IpcSet(fmt.Sprintf("public_key=%x\nupdate_only=true\nendpoint=%s\n", t.peer, ip))
+}
 
 // Weiterleiten: siehe Proxy.Weiterleiten.
 func (t *Tunnel) Weiterleiten(ziel string) (int, error) { return t.proxy.Weiterleiten(ziel) }

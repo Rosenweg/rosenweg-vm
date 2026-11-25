@@ -94,6 +94,34 @@ TLS-Zertifikat und ohne Gerätebindung. Stattdessen nimmt die App im Haus den
 LAN-Endpunkt des Gateways (`endpoint_intern`, kurzer Weg) und sonst den
 öffentlichen. Was sie wählt, zeigt der Chip („Im Haus“ / „Unterwegs“).
 
+**Erkennung per DNS (Entscheid Stefan):** Beim Start und bei jedem Netzwechsel
+(`connectivity_plus`, 2 s Ruhe) fragt die App über den **Resolver des
+Geräts** den TXT-Eintrag `location.rosenweg4303.ch` ab (Zeitgrenze 1,5 s,
+exakter Vergleich mit `Rosenweg GBT`; Name, Wert und Zeit in
+`lib/konfig.dart`). Den Eintrag gibt es nur im internen DNS.
+- Treffer → zuerst LAN-Endpunkt, Chip „Im Haus“.
+- Kein Treffer, NXDOMAIN, keine Antwort, Fehler → zuerst öffentlicher
+  Endpunkt, „Unterwegs“.
+- **Die Sicherheit hängt nicht am DNS.** Ob ein Endpunkt gilt, entscheidet der
+  WireGuard-Handshake (Gateway antwortet durch den Tunnel). Täuscht ein Netz
+  den Eintrag vor, scheitert der Handshake am LAN-Endpunkt, und die App fällt
+  auf den öffentlichen zurück. Ohne Treffer bleibt der LAN-Endpunkt nur als
+  Rückfall, falls der öffentliche Weg nicht geht.
+- Der Wechsel geschieht im **laufenden** Tunnel (`rwt_endpunkt`, WireGuard-
+  Roaming): ein offener Bildschirm reisst beim Netzwechsel nicht ab.
+
+DNS-Client: eigener kleiner Client in Dart (`lib/netz/haus_erkennung.dart`,
+UDP, nur TXT), weil die gängigen Pakete feste Server (Google, Cloudflare)
+fragen — genau das darf hier nicht sein. Die Server des Systems:
+
+| Plattform | Woher |
+|---|---|
+| Linux | `/etc/resolv.conf`; mit systemd-resolved `127.0.0.53`, der die Server des aktuellen Netzes fragt |
+| macOS | `/etc/resolv.conf` (von configd gepflegt), sonst `scutil --dns` |
+| Windows | `Get-DnsClientServerAddress` (PowerShell), sonst `ipconfig /all` |
+| Android | `ConnectivityManager.getLinkProperties(activeNetwork).dnsServers` über den Kanal `ch.rosenweg4303.vm/netz` (MainActivity.kt) |
+| iOS | folgt mit der iOS-App (`res_9_getservers` aus libresolv). Bis dahin ohne Server: „Unterwegs“, sicher, nur etwas längerer Weg |
+
 Auf dem Gerät: rwtunnel öffnet auf 127.0.0.1 einen CONNECT-Proxy (Geheimnis
 pro Start) für SPICE und eine Weiterleitung für die Gateway-Schnittstelle
 (einfaches HTTP im Tunnel; WireGuard verschlüsselt und weist den Absender aus).

@@ -204,6 +204,23 @@ PersistentKeepalive = 25
 	}
 	c.Close()
 
+	// Endpunktwechsel im laufenden Tunnel: ins Leere und zurueck.
+	if err := tun.EndpunktSetzen("127.0.0.1:9"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tun.EndpunktSetzen(fmt.Sprintf("127.0.0.1:%d", port)); err != nil {
+		t.Fatal(err)
+	}
+	r2, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/nach-wechsel", wport))
+	if err != nil {
+		t.Fatal(err)
+	}
+	inhalt, _ = io.ReadAll(r2.Body)
+	r2.Body.Close()
+	if string(inhalt) != "proxmox:/nach-wechsel" {
+		t.Fatalf("nach Endpunktwechsel: %q", inhalt)
+	}
+
 	z, err := tun.Zustand()
 	if err != nil || z.LetzterHandshake == 0 || z.Empfangen == 0 {
 		t.Fatalf("Zustand: %+v %v", z, err)

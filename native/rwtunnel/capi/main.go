@@ -106,6 +106,21 @@ func rwt_weiterleitung(ziel *C.char) *C.char {
 	return antwort(map[string]int{"port": port})
 }
 
+// rwt_endpunkt wechselt den Endpunkt im laufenden Tunnel (Roaming).
+//
+//export rwt_endpunkt
+func rwt_endpunkt(ep *C.char) *C.char {
+	mu.Lock()
+	defer mu.Unlock()
+	if aktiv == nil {
+		return fehler(tunnel.ErrKeinTunnel)
+	}
+	if err := aktiv.EndpunktSetzen(C.GoString(ep)); err != nil {
+		return fehler(err)
+	}
+	return antwort(map[string]bool{"ok": true})
+}
+
 //export rwt_stop
 func rwt_stop() {
 	mu.Lock()

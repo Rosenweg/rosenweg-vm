@@ -20,6 +20,14 @@ class Konfig {
   /// Proxmox selbst kennt die App nicht mehr; das macht der Gateway.
   static const api = 'https://rosenweg4303.ch';
 
+  /// Erkennung "im Haus": TXT-Eintrag im INTERNEN DNS (UniFi-Gateway
+  /// 100.64.2.1), oeffentlich nicht vorhanden. Exakter Vergleich.
+  /// Nur ein Hinweis fuer die Reihenfolge der Endpunkte, keine Sicherheit
+  /// (siehe lib/netz/haus_erkennung.dart).
+  static const hausDnsName = 'location.rosenweg4303.ch';
+  static const hausDnsWert = 'Rosenweg GBT';
+  static const hausDnsZeit = Duration(milliseconds: 1500);
+
   /// Schema fuer Ruecksprung auf Telefonen (Android/iOS). Auf Desktops wird
   /// stattdessen ein Port auf localhost geoeffnet, wie im Programm "Maschinen".
   static const appSchema = 'ch.rosenweg4303.vm';
