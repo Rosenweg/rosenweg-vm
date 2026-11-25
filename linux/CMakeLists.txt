@@ -100,6 +100,20 @@ install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}
 install(FILES "${FLUTTER_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
   COMPONENT Runtime)
 
+# Eigene native Bibliotheken (vorher mit native/*/bauen.sh linux gebaut).
+# Liegen neben libflutter_linux_gtk.so in lib/; dort sucht sie
+# lib/native/bibliothek.dart. spice-glib selbst kommt aus dem Debian-Paket
+# (libspice-client-glib-2.0-8) und wird bewusst NICHT mitgeliefert (LGPL,
+# Sicherheitsupdates ueber apt).
+foreach(rw_lib rwspice rwtunnel)
+  set(rw_pfad "${CMAKE_CURRENT_SOURCE_DIR}/../native/${rw_lib}/build/linux/lib${rw_lib}.so")
+  if(EXISTS "${rw_pfad}")
+    install(FILES "${rw_pfad}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}" COMPONENT Runtime)
+  else()
+    message(WARNING "lib${rw_lib}.so fehlt: native/${rw_lib}/bauen.sh linux")
+  endif()
+endforeach()
+
 foreach(bundled_library ${PLUGIN_BUNDLED_LIBRARIES})
   install(FILES "${bundled_library}"
     DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"

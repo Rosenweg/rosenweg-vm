@@ -1,0 +1,106 @@
+# Linux-Bau auf dem eigenen Runner (CT 140 auf pve2, Debian, Gruppe rosenweg-privat).
+#
+# Der Runner hat kein allgemeines sudo, nur ein eingeschraenktes apt-get.
+# Darum: Systempakete (Header fuer GTK, spice-glib, libsecret) ueber apt-get,
+# Go und Flutter als feste Versionen mit Pruefsumme in einen Cache im
+# Benutzerverzeichnis — nichts systemweit. Der Cache bleibt zwischen Laeufen
+# liegen (selbst gehosteter Runner), geladen wird nur beim ersten Mal.
+name: Linux
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: linux-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.27.4"
+  GO_SHA256: 7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840
+  FLUTTER_VERSION: "3.47.5"
+  FLUTTER_SHA256: 2132e990f236f8d22e7c6314b29a191a95b10d7cbcfec9b4e2e303d996652cbb
+
+jobs:
+  bauen:
+    runs-on:
+      group: rosenweg-privat
+      labels: [self-hosted, Linux, X64]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Systempakete
+        run: |
+          noetig="clang cmake ninja-build pkg-config xz-utils curl unzip git \
+                  libgtk-3-dev liblzma-dev libstdc++-14-dev \
+                  libspice-client-glib-2.0-dev libsecret-1-dev libjsoncpp-dev"
+          fehlt=""
+          for p in $noetig; do dpkg -s "$p" >/dev/null 2>&1 || fehlt="$fehlt $p"; done
+          if [ -n "$fehlt" ]; then
+            echo "Fehlende Pakete:$fehlt"
+            sudo -n apt-get update -qq
+            sudo -n apt-get install -y -qq --no-install-recommends $fehlt
+          fi
+
+      - name: Go und Flutter (Cache im Benutzerverzeichnis)
+        run: |
+          set -euo pipefail
+          C="$HOME/.cache/rosenweg-vm-ci"; mkdir -p "$C"
+          if [ ! -x "$C/go-$GO_VERSION/bin/go" ]; then
+            curl -fsSL -o "$C/go.tgz" "https://dl.google.com/go/go$GO_VERSION.linux-amd64.tar.gz"
+            echo "$GO_SHA256  $C/go.tgz" | sha256sum -c -
+            mkdir -p "$C/go-$GO_VERSION" && tar -xzf "$C/go.tgz" -C "$C/go-$GO_VERSION" --strip-components=1 && rm "$C/go.tgz"
+          fi
+          if [ ! -x "$C/flutter-$FLUTTER_VERSION/bin/flutter" ]; then
+            curl -fsSL -o "$C/flutter.txz" "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_$FLUTTER_VERSION-stable.tar.xz"
+            echo "$FLUTTER_SHA256  $C/flutter.txz" | sha256sum -c -
+            mkdir -p "$C/flutter-$FLUTTER_VERSION" && tar -xJf "$C/flutter.txz" -C "$C/flutter-$FLUTTER_VERSION" --strip-components=1 && rm "$C/flutter.txz"
+          fi
+          echo "$C/go-$GO_VERSION/bin" >> "$GITHUB_PATH"
+          echo "$C/flutter-$FLUTTER_VERSION/bin" >> "$GITHUB_PATH"
+          echo "GOPATH=$C/gopath" >> "$GITHUB_ENV"
+          echo "GOMODCACHE=$C/gopath/pkg/mod" >> "$GITHUB_ENV"
+          echo "GOTOOLCHAIN=local" >> "$GITHUB_ENV"
+          echo "PUB_CACHE=$C/pub-cache" >> "$GITHUB_ENV"
+
+      - name: Go-Tests (Tunnel, Gateway)
+        run: |
+          (cd native/rwtunnel && go vet ./... && go test -count=1 ./...)
+          (cd gateway && go vet . && go test -count=1 .)
+
+      - name: Native Bibliotheken
+        run: |
+          native/rwtunnel/bauen.sh linux
+          native/rwspice/bauen.sh linux
+
+      - name: Flutter pruefen und bauen
+        run: |
+          flutter config --no-analytics --enable-linux-desktop >/dev/null
+          flutter pub get
+          flutter analyze
+          flutter test
+          flutter build linux --release
+
+      - name: Gateway bauen
+        run: |
+          cd gateway
+          CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o build/vm-gateway .
+
+      - name: Pakete zusammenstellen
+        run: |
+          mkdir -p ausgabe
+          cp LICENSE LIZENZEN.md build/linux/x64/release/bundle/
+          tar -C build/linux/x64/release -czf ausgabe/rosenweg-vm-linux-x64.tar.gz bundle
+          cp gateway/build/vm-gateway gateway/vm-gateway.service gateway/setup.sh ausgabe/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rosenweg-vm-linux
+          path: ausgabe/
+          retention-days: 14
