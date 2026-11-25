@@ -70,65 +70,49 @@ ungefragt mithören können.
 Geräte mit Schalter; nicht weiterreichbare Geräte erscheinen ausgegraut mit
 Grund. Rechte und Treiber je Plattform: docs/plattformen.md.
 
-## 5. WireGuard: im Prozess der App, ohne Systemtunnel
+## 5. Netz: eigener Gateway-CT (Entscheid Stefan, 26.11.2026)
 
-**Entscheid:** wireguard-go mit dem gVisor-Netzstapel (`tun/netstack`) als
-Bibliothek in der App (`native/rwtunnel`, Go, c-shared/c-archive), nicht die
-WireGuard-App und kein Systemtunnel.
+Die App spricht **nie direkt** mit Proxmox, sondern immer mit dem
+**vm-gateway** (eigener LXC, `gateway/`), im Haus wie unterwegs. Der
+App-Tunnel endet dort, getrennt von wg-control und den Wohnungs-VLANs. Der
+Gateway ist als Einziger zu `pve*:8006/3128` zugelassen.
 
-Warum:
-- Ein Systemtunnel braucht überall Sonderrechte: Linux root/CAP_NET_ADMIN,
-  Windows einen Admin-Dienst mit wintun/wireguard-nt, macOS/iOS eine Network
-  Extension mit eigener Apple-Berechtigung, Android den VPN-Dialog. Der
-  Netzstapel im Benutzerraum braucht **gar keine** Rechte und keine
-  Bestätigung.
-- Die App braucht nur zwei Ziele: Proxmox-API (8006) und SPICE-Proxy (3128).
-  Nichts im System wird verändert (keine Route, kein DNS); der Tunnel ist weg,
-  wenn die App zu ist.
-- Ein Code für alle fünf Plattformen.
+Beide Enden laufen als wireguard-go mit Netzstapel **im Prozess**: auf dem
+Gerät ohne Systemrechte (kein root, kein Admin-Dienst, keine Network
+Extension, kein VPN-Dialog), auf dem Gateway ohne Schnittstelle und ohne
+Weiterleiten. Durch den Tunnel erreicht eine App genau zwei Ports des
+Gateways (80 Schnittstelle, 3128 SPICE). Das ist die Bauweise, nicht eine
+Firewall-Regel.
 
 Geprüfte Flutter-Pakete (25.11.2026): `wireguard_flutter` (0.1.3, letzte
-Version März 2024) und `wireguard_flutter_plus` (Fork, 12 Likes) bauen beide
-Systemtunnel (wg-quick mit root unter Linux, Dienst unter Windows, Network
-Extension auf Apple) — genau die Rechte, die wir vermeiden wollen.
+Version März 2024) und `wireguard_flutter_plus` (Fork) bauen Systemtunnel —
+genau die Rechte, die wir vermeiden.
 
-Wie die App den Tunnel benutzt: rwtunnel startet einen **HTTP-CONNECT-Proxy
-auf 127.0.0.1** (Zufallsport, Geheimnis pro Start, nur freigegebene Ziele).
-- Dart-HttpClient: `findProxy = 'PROXY rw:<geheimnis>@127.0.0.1:<port>'`. TLS
-  läuft Ende-zu-Ende durch den Proxy, das Zertifikat wird weiter gegen
-  `pve1.rosenweg4303.ch` geprüft.
-- spice-glib: Eigenschaft `proxy = http://rw:<geheimnis>@127.0.0.1:<port>`.
-  Proxmox erwartet am Port 3128 ein `CONNECT pvespiceproxy:<ticket>:…`; der
-  lokale Proxy reicht genau solche Ziele unverändert an den SPICE-Proxy des
-  Clusters weiter (ohne das lokale Geheimnis).
-- Namen löst der Proxy über den DNS **im Tunnel** auf (100.64.2.1), weil der
-  öffentliche DNS für pve1 eine andere Adresse liefert (100.64.90.20 statt
-  100.64.2.20/100.64.3.20 intern).
+**Im Haus und unterwegs derselbe Weg.** Ursprünglich sollte die App im Haus
+ohne Tunnel gehen. Mit dem Gateway wäre das ein zweiter Weg mit eigenem
+TLS-Zertifikat und ohne Gerätebindung. Stattdessen nimmt die App im Haus den
+LAN-Endpunkt des Gateways (`endpoint_intern`, kurzer Weg) und sonst den
+öffentlichen. Was sie wählt, zeigt der Chip („Im Haus“ / „Unterwegs“).
 
-Schlüssel: pro Start ein neues Paar, privat nur im Speicher. Die API ersetzt
-den alten Peer dieses Geräts. Damit liegt kein langlebiges Geheimnis auf dem
-Gerät, wie gefordert.
+Auf dem Gerät: rwtunnel öffnet auf 127.0.0.1 einen CONNECT-Proxy (Geheimnis
+pro Start) für SPICE und eine Weiterleitung für die Gateway-Schnittstelle
+(einfaches HTTP im Tunnel; WireGuard verschlüsselt und weist den Absender aus).
 
-Im Haus: Antwortet ein Knoten direkt (`/version` → 401), kein Tunnel. Das
-fragt genau das, was gleich gebraucht wird, und erkennt auch Geräte, die schon
-einen Tunnel haben (Laptop-Stationen).
+## 6. Anmeldung: eine einzige (Entscheid Stefan)
 
-## 6. Anmeldung
-
-Zwei Anmeldungen, beide über Authentik, meist ohne Eingabe:
-1. **Rosenweg-Konto** (Anwendung `rosenweg-apps`, öffentlich, PKCE) — nur für
-   den Tunnel nötig. Refresh-Token im sicheren Speicher des Systems.
-2. **Proxmox** über den bestehenden OpenID-Realm `authentik`
-   (`/access/openid/auth-url` + `/login`), wie „Maschinen“. Das Ticket (2 h)
-   wird stündlich mit sich selbst erneuert.
-
-Desktop: Rücksprung auf `http://localhost:<Zufallsport>`. Telefone: eigenes
-Schema `ch.rosenweg4303.vm:/…` (folgt). Was in Authentik einzutragen ist:
-docs/authentik-und-server.md.
-
-Warum nicht nur eine Anmeldung: Proxmox nimmt keine fremden Tokens an, und die
-Haupt-API kennt keine Proxmox-Tickets. Die zweite Anmeldung kostet keine
-Eingabe, weil der Browser die Authentik-Sitzung schon hat.
+- **Nur das Rosenweg-Konto** (Authentik `rosenweg-apps`, PKCE). Das Token
+  öffnet den Tunnel (Haupt-API) und jede Anfrage an den Gateway. Es gibt
+  **keine** zweite Proxmox-Anmeldung im Browser mehr.
+- **Still beim Start**, wenn die letzte Browser-Anmeldung höchstens 30 Tage
+  her ist (Refresh-Token im sicheren Speicher). Danach wieder Browser.
+  Gezählt wird ab der Browser-Anmeldung, nicht ab dem letzten Erneuern.
+- **Tunnel-Schlüssel**: pro Start neu, privat nur im Speicher. Beim Schliessen
+  meldet die App den Peer beim Gateway ab (`POST /abmelden`), der Schlüssel ist
+  sofort wertlos. Stürzt die App ab, entfernt der Gateway den Peer nach 3
+  Minuten ohne Handshake bzw. 5 Minuten Stille.
+- **Rechte**: der Gateway fragt Proxmox mit eigenem API-Token, aber **für die
+  Person** (`/access/permissions?userid=<name>@authentik&path=/vms/<id>`).
+  Sicherheitsbewertung: gateway/README.md.
 
 ## 7. Bedienung
 

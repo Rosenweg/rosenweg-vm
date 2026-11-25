@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 package tunnel
 
 import (
@@ -170,6 +172,24 @@ PersistentKeepalive = 25
 	c.Close()
 	if !strings.Contains(string(antwort), "proxmox:/api2/json/version") {
 		t.Fatalf("API-Antwort: %q", antwort)
+	}
+
+	// Weiterleitung: einfaches HTTP ohne Proxy-Protokoll.
+	wport, err := tun.Weiterleiten("pve1.rosenweg4303.ch:8006")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/weiter", wport))
+	if err != nil {
+		t.Fatal(err)
+	}
+	inhalt, _ := io.ReadAll(r.Body)
+	r.Body.Close()
+	if string(inhalt) != "proxmox:/weiter" {
+		t.Fatalf("Weiterleitung: %q", inhalt)
+	}
+	if _, err := tun.Weiterleiten("100.64.2.1:22"); err == nil {
+		t.Fatal("Weiterleitung zu fremdem Ziel haette abgelehnt werden muessen")
 	}
 
 	// SPICE: CONNECT pvespiceproxy:… wird an :3128 weitergereicht.

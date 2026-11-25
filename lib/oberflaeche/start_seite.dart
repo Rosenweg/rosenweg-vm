@@ -1,8 +1,9 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import 'package:flutter/material.dart';
 
 import '../app_zustand.dart';
 import '../netz/netzlage.dart';
-import '../proxmox/proxmox.dart';
+import '../gateway/gateway.dart';
 import 'bildschirm_seite.dart';
 
 /// "Meine Computer": eine Liste, ein Tipp oeffnet den Bildschirm.
@@ -32,8 +33,8 @@ class StartSeite extends StatelessWidget {
               itemBuilder: (_) => [
                 if (zustand.konto.name != null)
                   PopupMenuItem(enabled: false, child: Text(zustand.konto.name!)),
-                if (zustand.proxmox?.benutzer != null)
-                  PopupMenuItem(enabled: false, child: Text(zustand.proxmox!.benutzer!)),
+                if (zustand.konto.email != null)
+                  PopupMenuItem(enabled: false, child: Text(zustand.konto.email!)),
                 const PopupMenuItem(value: 'ab', child: Text('Abmelden')),
               ],
               onSelected: (_) => zustand.abmelden(),
@@ -48,7 +49,7 @@ class StartSeite extends StatelessWidget {
   Widget _inhalt(BuildContext context) {
     switch (zustand.phase) {
       case Phase.pruefen:
-        return const _Hinweis(warten: true, text: 'Verbindung zum Haus wird geprueft …');
+        return const _Hinweis(warten: true, text: 'Einen Moment …');
       case Phase.tunnel:
         return const _Hinweis(warten: true, text: 'Sichere Verbindung ins Haus wird aufgebaut …');
       case Phase.anmelden:
@@ -57,9 +58,9 @@ class StartSeite extends StatelessWidget {
             text: 'Die Anmeldeseite wurde im Browser geoeffnet.\nNach der Anmeldung geht es hier weiter.');
       case Phase.kontoNoetig:
         return _Hinweis(
-          text: 'Sie sind nicht im Haus. Fuer die Verbindung von unterwegs\nbitte einmal mit dem Rosenweg-Konto anmelden.',
+          text: 'Bitte mit dem Rosenweg-Konto anmelden.\nDie App merkt sich die Anmeldung 30 Tage.',
           knopf: 'Mit Rosenweg-Konto anmelden',
-          aktion: zustand.kontoAnmelden,
+          aktion: zustand.anmelden,
         );
       case Phase.fehler:
         return _Hinweis(text: 'Es hat nicht geklappt:\n${zustand.fehler}', knopf: 'Nochmals', aktion: zustand.starten);
@@ -88,8 +89,11 @@ class _Zeile extends StatelessWidget {
     return ListTile(
       leading: Icon(Icons.computer, size: 32, color: c.laeuft ? farbe.primary : farbe.outline),
       title: Text(c.name, style: const TextStyle(fontSize: 18)),
-      subtitle: Text(c.laeuft ? 'laeuft' : 'ausgeschaltet'),
-      trailing: Icon(c.laeuft ? Icons.chevron_right : Icons.power_settings_new),
+      subtitle: Text(c.laeuft ? (c.darfOeffnen ? 'laeuft' : 'laeuft · nur Anzeige in der Liste') : 'ausgeschaltet'),
+      trailing: c.laeuft
+          ? (c.darfOeffnen ? const Icon(Icons.chevron_right) : null)
+          : (c.darfEinschalten ? const Icon(Icons.power_settings_new) : null),
+      enabled: c.laeuft ? c.darfOeffnen : c.darfEinschalten,
       onTap: () => c.laeuft ? _oeffnen(context) : _einschalten(context),
     );
   }

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*
  * Headless-Test fuer librwspice: verbindet mit einem SPICE-Server, wartet auf
  * ein Bild und schreibt es als PPM. Damit ist die C-Schicht ohne Flutter und

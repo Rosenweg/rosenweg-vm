@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+import 'dart:ui' show AppExitResponse;
+
 import 'package:flutter/material.dart';
 
 import 'app_zustand.dart';
@@ -16,15 +19,29 @@ class RosenwegVm extends StatefulWidget {
 
 class _RosenwegVmState extends State<RosenwegVm> {
   final _zustand = AppZustand();
+  late final AppLifecycleListener _lebenslauf;
 
   @override
   void initState() {
     super.initState();
     _zustand.starten();
+    // Beim Schliessen (Desktop: Fenster zu, Cmd+Q) den Tunnel-Peer abmelden,
+    // damit der Schluessel sofort ungueltig ist. Hoechstens 3 Sekunden — eine
+    // haengende Verbindung soll das Schliessen nicht aufhalten; dann raeumt
+    // der Gateway nach wenigen Minuten ohne Lebenszeichen selbst auf.
+    _lebenslauf = AppLifecycleListener(
+      onExitRequested: () async {
+        await _zustand.schliessen().timeout(const Duration(seconds: 3), onTimeout: () {});
+        return AppExitResponse.exit;
+      },
+      // Telefone beenden Apps oft ohne Rueckfrage; dort zaehlt "abgetrennt".
+      onDetach: () => _zustand.schliessen(),
+    );
   }
 
   @override
   void dispose() {
+    _lebenslauf.dispose();
     _zustand.dispose();
     super.dispose();
   }

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -14,9 +15,9 @@ import 'browser_anmeldung.dart';
 /// (Schluesselbund, libsecret, Windows-Anmeldeinformationen, Android-Keystore).
 /// Das Access-Token lebt nur im Speicher. Kein Passwort, kein Client-Geheimnis.
 ///
-/// Wozu ueberhaupt, wenn Proxmox selbst ueber Authentik anmeldet? Fuer den
-/// Tunnel: die Haupt-API gibt ihn nur einer angemeldeten Person
-/// (POST /api/apps/tunnel). Im Haus braucht es dieses Konto nicht.
+/// Das ist die EINZIGE Anmeldung der App: dasselbe Token oeffnet den Tunnel
+/// (Haupt-API) und alle Anfragen an den vm-gateway; der fragt Proxmox, was
+/// diese Person darf.
 class RosenwegKonto {
   RosenwegKonto({FlutterSecureStorage? speicher})
       : _speicher = speicher ??
@@ -33,13 +34,32 @@ class RosenwegKonto {
   String? email;
 
   static const _rt = 'rosenweg_refresh_token';
+  static const _am = 'rosenweg_angemeldet_am';
+
+  /// Entscheid Stefan: beim Start still anmelden, wenn die letzte Anmeldung im
+  /// Browser hoechstens 30 Tage her ist; danach wieder durch den Browser.
+  /// Gezaehlt wird ab der Browser-Anmeldung, nicht ab dem letzten Erneuern —
+  /// sonst wuerde ein taeglich genutztes Geraet nie mehr nachgefragt.
+  static const hoechstensAlt = Duration(days: 30);
 
   static String _zufall(int n) {
     final r = Random.secure();
     return base64UrlEncode(List<int>.generate(n, (_) => r.nextInt(256))).replaceAll('=', '');
   }
 
-  Future<bool> get angemeldet async => (await _speicher.read(key: _rt)) != null;
+  Future<bool> get angemeldet async {
+    if (await _speicher.read(key: _rt) == null) return false;
+    if (await _zuAlt()) {
+      await abmelden();
+      return false;
+    }
+    return true;
+  }
+
+  Future<bool> _zuAlt() async {
+    final am = DateTime.tryParse(await _speicher.read(key: _am) ?? '');
+    return am == null || DateTime.now().difference(am) > hoechstensAlt;
+  }
 
   /// Browser-Anmeldung. Meist ohne Eingabe, weil Authentik im Browser die
   /// Sitzung schon kennt.
@@ -70,6 +90,7 @@ class RosenwegKonto {
     });
     if (j == null) throw AnmeldeFehler('Rosenweg-Anmeldung fehlgeschlagen');
     await _uebernehmen(j);
+    await _speicher.write(key: _am, value: DateTime.now().toUtc().toIso8601String());
     await _profil();
   }
 
@@ -80,6 +101,10 @@ class RosenwegKonto {
     }
     final rt = await _speicher.read(key: _rt);
     if (rt == null) return null;
+    if (await _zuAlt()) {
+      await abmelden();
+      return null;
+    }
     final j = await _token({'grant_type': 'refresh_token', 'refresh_token': rt, 'client_id': Konfig.clientId});
     if (j == null) {
       // Widerrufen oder abgelaufen: ehrlich abmelden statt still weiterprobieren.
@@ -96,6 +121,7 @@ class RosenwegKonto {
     _zugangBis = DateTime.fromMillisecondsSinceEpoch(0);
     name = email = null;
     await _speicher.delete(key: _rt);
+    await _speicher.delete(key: _am);
   }
 
   Future<void> _uebernehmen(Map<String, dynamic> j) async {

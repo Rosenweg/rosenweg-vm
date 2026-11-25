@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /// Feste Angaben des Hauses. Nichts davon ist geheim.
 ///
 /// Bewusst im Code und nicht in einer Einstellungsseite: die App soll auf
@@ -15,19 +16,9 @@ class Konfig {
   /// durch den Browser, auch wenn sie nur zuhause sitzt.
   static const scopes = 'openid email profile offline_access';
 
-  /// Haupt-API (Tunnel fuer unterwegs).
+  /// Haupt-API: legt beim vm-gateway den Tunnel-Zugang an (POST /api/apps/tunnel).
+  /// Proxmox selbst kennt die App nicht mehr; das macht der Gateway.
   static const api = 'https://rosenweg4303.ch';
-
-  /// Die Knoten des Clusters, der Reihe nach. Jeder antwortet fuer den ganzen
-  /// Cluster; faellt einer aus, nimmt die App den naechsten (wie "Maschinen").
-  static const proxmoxKnoten = [
-    'pve1.rosenweg4303.ch',
-    'pve2.rosenweg4303.ch',
-    'pve3.rosenweg4303.ch',
-  ];
-  static const proxmoxPort = 8006;
-  static const spiceProxyPort = 3128;
-  static const realm = 'authentik';
 
   /// Schema fuer Ruecksprung auf Telefonen (Android/iOS). Auf Desktops wird
   /// stattdessen ein Port auf localhost geoeffnet, wie im Programm "Maschinen".

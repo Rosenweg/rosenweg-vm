@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 package tunnel
 
 import (
@@ -133,6 +135,9 @@ func (t *Tunnel) waehlen(ctx context.Context, adresse string) (net.Conn, error) 
 // ProxyPort und ProxyGeheimnis braucht die App fuer "PROXY rw:<geheimnis>@127.0.0.1:<port>".
 func (t *Tunnel) ProxyPort() int         { return t.proxy.Port() }
 func (t *Tunnel) ProxyGeheimnis() string { return t.proxy.Geheimnis() }
+
+// Weiterleiten: siehe Proxy.Weiterleiten.
+func (t *Tunnel) Weiterleiten(ziel string) (int, error) { return t.proxy.Weiterleiten(ziel) }
 
 // Zustand liest Handshake und Zaehler aus wireguard-go.
 func (t *Tunnel) Zustand() (Zustand, error) {

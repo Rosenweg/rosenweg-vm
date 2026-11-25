@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 package tunnel
 
 import (
@@ -56,6 +58,7 @@ type Proxy struct {
 	wg        sync.WaitGroup
 	mu        sync.Mutex
 	offen     map[net.Conn]struct{}
+	weiter    []net.Listener
 }
 
 const spicePraefix = "pvespiceproxy:"
@@ -87,6 +90,9 @@ func (p *Proxy) Geheimnis() string { return p.geheimnis }
 func (p *Proxy) Close() {
 	p.ln.Close()
 	p.mu.Lock()
+	for _, l := range p.weiter {
+		l.Close()
+	}
 	for c := range p.offen {
 		c.Close()
 	}
@@ -252,6 +258,76 @@ func (p *Proxy) verbinden(c net.Conn, br *bufio.Reader, ziel net.Conn) {
 		}
 		fertig <- struct{}{}
 	}()
+	// Ist eine Richtung zu Ende, bekommt die andere kurz Zeit fuer den Rest.
+	// Danach wird hart geschlossen: sonst haengt eine Seite, deren Gegenueber
+	// kein halbes Schliessen kennt (netstack, Keep-Alive-Verbindungen), ewig
+	// — und Close() des Proxys wartet mit. Im Gateway-Test so aufgefallen.
 	<-fertig
-	<-fertig
+	select {
+	case <-fertig:
+	case <-time.After(5 * time.Second):
+	}
+	c.Close()
+	ziel.Close()
+}
+
+// Weiterleiten oeffnet einen lokalen Port, der jede Verbindung unveraendert
+// zu ziel im Tunnel durchreicht, und liefert dessen Nummer.
+//
+// Wozu neben dem Proxy: Die Schnittstelle des Gateways spricht im Tunnel
+// einfaches HTTP (WireGuard verschluesselt und weist den Absender schon
+// aus). Fuer http:// schickt der Dart-HttpClient einem Proxy aber kein
+// CONNECT, sondern die ganze Anfrage — das kann dieser Proxy bewusst nicht.
+// Eine Weiterleitung ist einfacher und genauso eng: nur das eine Ziel aus der
+// Freigabeliste. Ein Geheimnis braucht sie nicht, weil der Gateway ohnehin
+// bei jeder Anfrage das Token der Person verlangt.
+func (p *Proxy) Weiterleiten(ziel string) (int, error) {
+	if !p.erlaubt[strings.ToLower(ziel)] {
+		return 0, fmt.Errorf("Ziel %s nicht freigegeben", ziel)
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 0, err
+	}
+	p.mu.Lock()
+	p.weiter = append(p.weiter, ln)
+	p.mu.Unlock()
+	p.wg.Add(1)
+	go func() {
+		defer p.wg.Done()
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			p.wg.Add(1)
+			go func() {
+				defer p.wg.Done()
+				p.merken(c, true)
+				defer p.merken(c, false)
+				defer c.Close()
+				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+				z, err := p.k.Waehlen(ctx, p.fest(ziel))
+				cancel()
+				if err != nil {
+					return
+				}
+				defer z.Close()
+				p.verbinden(c, bufio.NewReader(c), z)
+			}()
+		}
+	}()
+	return ln.Addr().(*net.TCPAddr).Port, nil
+}
+
+// fest setzt eine feste Adresse aus Hosts ein, falls fuer den Namen eine da ist.
+func (p *Proxy) fest(ziel string) string {
+	host, port, err := net.SplitHostPort(ziel)
+	if err != nil {
+		return ziel
+	}
+	if f, ok := p.k.Hosts[strings.ToLower(host)]; ok && f != "" {
+		return net.JoinHostPort(f, port)
+	}
+	return ziel
 }

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Package tunnel baut einen WireGuard-Tunnel ganz im Prozess der App auf.
 //
 // Warum im Prozess und nicht als Systemtunnel: Ein Systemtunnel braucht auf

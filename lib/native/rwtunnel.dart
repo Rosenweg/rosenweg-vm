@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import 'dart:convert';
 import 'dart:ffi';
 
@@ -12,6 +13,7 @@ class RwTunnel {
       : _paar = lib.lookupFunction<Pointer<Utf8> Function(), Pointer<Utf8> Function()>('rwt_schluesselpaar'),
         _start = lib.lookupFunction<Pointer<Utf8> Function(Pointer<Utf8>), Pointer<Utf8> Function(Pointer<Utf8>)>('rwt_start'),
         _zustand = lib.lookupFunction<Pointer<Utf8> Function(), Pointer<Utf8> Function()>('rwt_zustand'),
+        _weiter = lib.lookupFunction<Pointer<Utf8> Function(Pointer<Utf8>), Pointer<Utf8> Function(Pointer<Utf8>)>('rwt_weiterleitung'),
         _stop = lib.lookupFunction<Void Function(), void Function()>('rwt_stop'),
         _frei = lib.lookupFunction<Void Function(Pointer<Utf8>), void Function(Pointer<Utf8>)>('rwt_frei');
 
@@ -21,6 +23,7 @@ class RwTunnel {
   final Pointer<Utf8> Function() _paar;
   final Pointer<Utf8> Function(Pointer<Utf8>) _start;
   final Pointer<Utf8> Function() _zustand;
+  final Pointer<Utf8> Function(Pointer<Utf8>) _weiter;
   final void Function() _stop;
   final void Function(Pointer<Utf8>) _frei;
 
@@ -75,6 +78,17 @@ class RwTunnel {
       return _lesen(_zustand());
     } on TunnelFehler {
       return null;
+    }
+  }
+
+  /// Lokaler Port, der zu einem freigegebenen Ziel im Tunnel durchreicht
+  /// (fuer die HTTP-Schnittstelle des Gateways).
+  int weiterleitung(String ziel) {
+    final z = ziel.toNativeUtf8();
+    try {
+      return _lesen(_weiter(z))['port'] as int;
+    } finally {
+      malloc.free(z);
     }
   }
 

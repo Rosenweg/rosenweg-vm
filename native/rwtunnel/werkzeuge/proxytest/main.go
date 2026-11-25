@@ -1,8 +1,10 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // proxytest: lokaler Proxy wie in der App, aber ohne WireGuard (direkte
 // Verbindungen) und mit einem nachgebauten SPICE-Proxy von Proxmox davor.
 // Damit laesst sich spice-glib durch die ganze Proxy-Kette testen:
 //
-//   spice-glib ─CONNECT pvespiceproxy:…─► Proxy (Geheimnis) ─► "Proxmox :3128" ─► SPICE-Server
+//	spice-glib ─CONNECT pvespiceproxy:…─► Proxy (Geheimnis) ─► "Proxmox :3128" ─► SPICE-Server
 //
 // Aufruf: proxytest <spice-server host:port>
 // Gibt die Proxy-Adresse fuer spice-glib aus und laeuft, bis er beendet wird.

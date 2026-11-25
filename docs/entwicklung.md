@@ -24,8 +24,11 @@ Weitere Ziele: `native/rwtunnel/bauen.sh android|ios|linux|windows`.
 ## Testen ohne Hausnetz
 
 ```bash
-# Tunnel: zwei WireGuard-Enden im Prozess, Proxy, SPICE-Weiterreichung
+# Tunnel: zwei WireGuard-Enden im Prozess, Proxy, Weiterleitung, SPICE
 (cd native/rwtunnel && ../../.werkzeuge/go/bin/go test ./tunnel/)
+# Gateway Ende zu Ende: nachgebautes Authentik und Proxmox, App-Seite des
+# Tunnels, Rechte, Geraetebindung, SPICE nur mit eigenem Ticket, Ablauf
+(cd gateway && ../.werkzeuge/go/bin/go test .)
 
 # SPICE-Testserver (spice-server aus den Quellen, Testprogramme):
 git clone --depth 1 --branch v0.16.0 --recurse-submodules \
@@ -64,8 +67,8 @@ screencapture -x -o -l <Nummer> /tmp/fenster.png
 
 ## Gegen das Haus ausprobieren
 
-Erst nach den Einträgen in Authentik (docs/authentik-und-server.md):
-`flutter run -d macos --dart-define=RW_NATIVE_DIR=$PWD/native`. Im Haus
-erscheint „Im Haus“, der Browser öffnet die Proxmox-Anmeldung, danach die
-Liste. Unterwegs zuerst „Mit Rosenweg-Konto anmelden“ (braucht den API-Branch
-`vm-app-tunnel` ausgerollt).
+Erst nach der Einrichtung (docs/authentik-und-server.md: Authentik-Eintrag,
+vm-gateway-CT, API-Branch `vm-app-tunnel` ausgerollt):
+`flutter run -d macos --dart-define=RW_NATIVE_DIR=$PWD/native`. Einmal
+„Mit Rosenweg-Konto anmelden“, danach die Liste — im Haus über den
+LAN-Endpunkt des Gateways, sonst über den öffentlichen.

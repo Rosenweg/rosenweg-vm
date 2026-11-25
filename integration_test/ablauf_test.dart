@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Ende-zu-Ende auf dem Entwicklungsrechner, ohne Hausnetz:
 //
 //   spice-server/test-display-no-ssl  (lauscht auf 127.0.0.1:5912)
