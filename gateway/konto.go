@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"regexp"
 	"strings"
@@ -92,7 +93,7 @@ func enthaelt(v any, s string) bool {
 // gemerkt: Liste, Bildschirm und Einschalten fragen sonst Authentik dreimal.
 func (ks *Konten) Pruefen(ctx context.Context, token string) (*Konto, error) {
 	if token == "" || len(token) > 4096 {
-		return nil, ErrNichtAngemeldet
+		return nil, fmt.Errorf("%w: kein Token", ErrNichtAngemeldet)
 	}
 	h := sha256.Sum256([]byte(token))
 	ks.mu.Lock()
@@ -110,25 +111,25 @@ func (ks *Konten) Pruefen(ctx context.Context, token string) (*Konto, error) {
 	}
 	defer r.Body.Close()
 	if r.StatusCode != http.StatusOK {
-		return nil, ErrNichtAngemeldet
+		return nil, fmt.Errorf("%w: Authentik userinfo %d", ErrNichtAngemeldet, r.StatusCode)
 	}
 	var info map[string]any
 	if json.NewDecoder(r.Body).Decode(&info) != nil {
-		return nil, ErrNichtAngemeldet
+		return nil, fmt.Errorf("%w: Authentik userinfo: Antwort unlesbar", ErrNichtAngemeldet)
 	}
 	// Erst NACHDEM Authentik das Token bestaetigt hat, ist sein Inhalt echt.
 	c := claimsLesen(token)
 	if c == nil || !(enthaelt(c["aud"], ks.clientID) || enthaelt(c["azp"], ks.clientID)) {
-		return nil, ErrNichtAngemeldet
+		return nil, fmt.Errorf("%w: Token nicht fuer rosenweg-apps (aud/azp)", ErrNichtAngemeldet)
 	}
 	email, _ := info["email"].(string)
 	email = strings.ToLower(strings.TrimSpace(email))
 	if v, ok := info["email_verified"].(bool); email == "" || (ok && !v) {
-		return nil, ErrNichtAngemeldet
+		return nil, fmt.Errorf("%w: keine bestaetigte Mailadresse (email leer: %v, email_verified: %v)", ErrNichtAngemeldet, email == "", info["email_verified"])
 	}
 	b, _ := info[ks.claim].(string)
 	if !benutzerRE.MatchString(b) {
-		return nil, ErrNichtAngemeldet
+		return nil, fmt.Errorf("%w: Claim %s ungueltig (%q)", ErrNichtAngemeldet, ks.claim, b)
 	}
 	name, _ := info["name"].(string)
 	sub, _ := info["sub"].(string)
