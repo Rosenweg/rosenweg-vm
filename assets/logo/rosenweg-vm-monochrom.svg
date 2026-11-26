@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>Rosenweg Virtuelle Computer (Android monochrom)</title>
+  <g transform="translate(512 512) scale(0.68) translate(-512 -508)" fill="#FFFFFF">
+    <path fill-rule="evenodd" d="M224 208 H800 A56 56 0 0 1 856 264 V636 A56 56 0 0 1 800 692 H224 A56 56 0 0 1 168 636 V264 A56 56 0 0 1 224 208 Z M236 256 H788 A20 20 0 0 1 808 276 V612 A20 20 0 0 1 788 632 H236 A20 20 0 0 1 216 612 V276 A20 20 0 0 1 236 256 Z"/>
+    <path fill-rule="evenodd" d="M408 632 V380 H424 V328 H476 V380 H486 V328 H538 V380 H548 V328 H600 V380 H616 V632 Z M476 632 V566 A36 36 0 0 1 548 566 V632 Z M512 430 A16 16 0 0 1 528 446 V466 A16 16 0 0 1 496 466 V446 A16 16 0 0 1 512 430 Z"/>
+    <path d="M462 684 H562 L580 768 H444 Z"/>
+    <rect x="340" y="756" width="344" height="52" rx="26"/>
+  </g>
+</svg>
