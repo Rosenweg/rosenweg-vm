@@ -5,7 +5,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:crypto/crypto.dart';
-import 'package:rosenweg_basis/rosenweg_basis.dart' show Anmeldeweg, AnmeldungAbgebrochen, LocalhostAnmeldeweg;
+import 'package:rosenweg_basis/rosenweg_basis.dart' show Anmeldeweg, AnmeldungAbgebrochen, LocalhostAnmeldeweg, StilleAnmeldung;
 import 'package:url_launcher/url_launcher.dart';
 
 import '../konfig.dart';
@@ -23,9 +23,12 @@ import 'schluesselbund.dart';
 /// (Haupt-API) und alle Anfragen an den vm-gateway; der fragt Proxmox, was
 /// diese Person darf.
 class RosenwegKonto {
-  RosenwegKonto({Schluesselbund? speicher}) : _speicher = speicher ?? Schluesselbund.i;
+  RosenwegKonto({Schluesselbund? speicher, StilleAnmeldung? Function()? still})
+      : _speicher = speicher ?? Schluesselbund.i,
+        _still = still ?? _standardStill;
 
   final Schluesselbund _speicher;
+  final StilleAnmeldung? Function() _still;
   String? _zugang;
   DateTime _zugangBis = DateTime.fromMillisecondsSinceEpoch(0);
   String? name;
@@ -92,13 +95,72 @@ class RosenwegKonto {
     } finally {
       if (Platform.isIOS) unawaited(closeInAppWebView());
     }
+    await _abschliessen(antwort, verifier: verifier, state: state, rueck: rueck.adresse);
+  }
+
+  /// Kerberos nur auf Linux (Rosenweg-OS-Stationen, Domaenenanmeldung ueber
+  /// sssd) und Windows (Rechner der Domaene); macOS und Telefone nie.
+  static StilleAnmeldung? _standardStill() {
+    if (!(Platform.isLinux || Platform.isWindows)) return null;
+    return StilleAnmeldung(
+      authentik: Uri.parse(Konfig.authentik).replace(path: '/'),
+      quelle: Konfig.kerberosQuelle,
+      dienst: Konfig.kerberosDienst,
+    );
+  }
+
+  /// Ruecksprung der stillen Anmeldung. Passt auf die Desktop-Regel in
+  /// Authentik (`^http://localhost:[0-9]+/anmeldung$`); Port 0, weil dort
+  /// niemand lauscht: die App liest den Code aus der Weiterleitung selbst.
+  static const stillerRuecksprung = 'http://localhost:0/anmeldung';
+
+  /// Anmeldung mit dem Kerberos-Ticket der Sitzung, ohne Browser und ohne
+  /// Eingabe (rosenweg_basis [StilleAnmeldung]: SPNEGO an die Kerberos-Quelle
+  /// von Authentik, dann dieselbe PKCE-Autorisierung wie im Browser).
+  /// true = angemeldet. false = hier nicht moeglich (kein Ticket, nicht in
+  /// der Domaene, Authentik will etwas fragen) — dann bleibt [anmelden].
+  /// Wirft nicht.
+  ///
+  /// Zaehlt fuer die 30-Tage-Regel wie eine Browser-Anmeldung: das Ticket
+  /// beweist eine frische Anmeldung am Geraet.
+  Future<bool> stillAnmelden() async {
+    final still = _still();
+    if (still == null) return false;
+    final verifier = _zufall(48);
+    final state = _zufall(24);
+    final challenge = base64UrlEncode(sha256.convert(ascii.encode(verifier)).bytes).replaceAll('=', '');
+    final url = Uri.parse('${Konfig.authentik}/authorize/').replace(queryParameters: {
+      'response_type': 'code',
+      'client_id': Konfig.clientId,
+      'redirect_uri': stillerRuecksprung,
+      'scope': Konfig.scopes,
+      'state': state,
+      'code_challenge': challenge,
+      'code_challenge_method': 'S256',
+    });
+    final antwort = await still.ausfuehren(url, stillerRuecksprung);
+    if (antwort == null) {
+      Protokoll.schreiben('Stille Anmeldung nicht moeglich: ${still.grund}');
+      return false;
+    }
+    try {
+      await _abschliessen(antwort, verifier: verifier, state: state, rueck: stillerRuecksprung);
+      Protokoll.schreiben('Still angemeldet (Kerberos)');
+      return true;
+    } catch (e) {
+      Protokoll.schreiben('Stille Anmeldung: Abschluss fehlgeschlagen', e);
+      return false;
+    }
+  }
+
+  Future<void> _abschliessen(Uri antwort, {required String verifier, required String state, required String rueck}) async {
     final q = antwort.queryParameters;
     if (q['error'] != null || q['code'] == null) throw AnmeldeFehler('Anmeldung abgebrochen');
     if (q['state'] != state) throw AnmeldeFehler('Anmeldung abgelaufen, bitte nochmals');
     final j = await _token({
       'grant_type': 'authorization_code',
       'code': q['code']!,
-      'redirect_uri': rueck.adresse,
+      'redirect_uri': rueck,
       'client_id': Konfig.clientId,
       'code_verifier': verifier,
     });

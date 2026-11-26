@@ -11,7 +11,7 @@ Stand 25.11.2026. Aufwand grob in Personentagen (PT), ohne Store-Verfahren.
 | Ton | PipeWire/Pulse/ALSA | WASAPI | ✓ CoreAudio (Wiedergabe getestet) | AAudio/OpenSL | CoreAudio + AVAudioSession |
 | Mikrofon | keine Rechte | Datenschutz-Einstellung | Erlaubnis-Dialog | RECORD_AUDIO | Erlaubnis-Dialog |
 | USB | ja (Rechte nötig) | ja (UsbDk-Treiber) | eingeschränkt | ja (Android-USB-Host) | **nein** |
-| Anmeldung (einmal, 30 Tage) | localhost | localhost | localhost | Schema (rosenweg_basis) | localhost im In-App-Browser |
+| Anmeldung (einmal, 30 Tage) | still per Kerberos (Station), sonst localhost | still per Kerberos (Domäne), sonst localhost | localhost | Schema (rosenweg_basis) | localhost im In-App-Browser |
 | DNS-Server für „im Haus“ | resolv.conf | PowerShell/ipconfig | resolv.conf/scutil | LinkProperties (rosenweg_basis) | keine (immer „Unterwegs“) |
 | Stand | **.deb gebaut** (CT 141, 26.11.2026), Start unter Xvfb bis zur Anmeldung | **Installer gebaut** (CI windows-latest, 26.11.2026), Ladetest + Start im Runner, nicht an echter VM getestet | **DMG gebaut** (arm64, ab macOS 26, ad hoc) | **APK gebaut** (arm64-v8a, x86_64; Stapel in CI, APK lokal mit Rosenweg-Schlüssel), nicht auf einem Telefon getestet | **App gebaut ohne Signatur** (lokal; Stapel in CI), nicht auf einem Gerät |
 
@@ -50,6 +50,14 @@ Stand 25.11.2026. Aufwand grob in Personentagen (PT), ohne Store-Verfahren.
   Fehlt er, behält die App ihre Werte nur bis Programmende. Die stille
   Anmeldung über die Browser-Sitzung (30 Tage) geht trotzdem, nur die
   Geräte-Kennung ist bei jedem Start neu.
+- **Stille Anmeldung (Kerberos):** an einer Station mit Domänenanmeldung
+  meldet die App beim Start ohne Knopf und ohne Browser an
+  (`RosenwegKonto.stillAnmelden`, SPNEGO aus rosenweg_basis
+  `StilleAnmeldung`, GSS-API per `dlopen` → `.deb` hängt von
+  `libgssapi-krb5-2` ab). Kein Ticket, kein KDC erreichbar oder Authentik
+  will etwas fragen → Knopf „Mit Rosenweg-Konto anmelden“ (zuerst wieder
+  still, dann Browser). „Abmelden“ in der App meldet bewusst nicht sofort
+  wieder still an.
 - **Aufwand:** 3–5 PT (Bau auf Debian, Paket, Texture, udev, Test mit echter VM).
 
 ## Windows
@@ -100,8 +108,9 @@ Runner grün. Noch nicht gegen eine echte VM probiert (kein Windows-Rechner).
   Azure Trusted Signing.
 - **Veröffentlichen:** bei Tag `v*` ins GitHub-Release und auf /apps
   (`.exe` = Plattform windows), wie .deb und .dmg.
-- **Offen:** Test an echter VM (Bild, Ton, USB mit UsbDk, Ordner); stille
-  Kerberos-Anmeldung kommt mit `RosenwegKonto` aus rosenweg_basis.
+- **Offen:** Test an echter VM (Bild, Ton, USB mit UsbDk, Ordner). Stille
+  Anmeldung per Kerberos (SSPI, `secur32.dll`, NTLM wird verworfen) ist
+  eingebaut wie unter Linux, an einem Rechner der Domäne noch nicht getestet.
 
 ## macOS
 

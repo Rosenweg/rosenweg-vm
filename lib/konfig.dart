@@ -35,4 +35,10 @@ class Konfig {
   /// Ruecksprung auf Android (Authentik rosenweg-apps, strikter Eintrag);
   /// die Activity dafuer bringt rosenweg_basis mit (Schema = applicationId).
   static const telefonRuecksprung = '$appSchema:/anmeldung';
+
+  /// Stille Anmeldung mit dem Kerberos-Ticket der Sitzung (Linux-Stationen,
+  /// Windows-Rechner der Domaene): Kerberos-Quelle in Authentik und deren
+  /// Principal fuer SPNEGO. Dieselben Werte wie RosenwegKonfig in rosenweg_basis.
+  static const kerberosQuelle = 'ad-kerberos';
+  static const kerberosDienst = 'HTTP/authentik.rosenweg4303.ch@AD.ROSENWEG4303.CH';
 }

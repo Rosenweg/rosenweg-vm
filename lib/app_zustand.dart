@@ -7,7 +7,8 @@ import 'netz/netzlage.dart';
 import 'protokoll.dart';
 
 enum Phase {
-  /// Start: gespeicherte Anmeldung pruefen.
+  /// Start: gespeicherte Anmeldung pruefen, sonst still mit Kerberos
+  /// anmelden (Stationen, Windows in der Domaene).
   pruefen,
 
   /// Keine (oder eine ueber 30 Tage alte) Anmeldung: Knopf "Anmelden".
@@ -27,16 +28,18 @@ enum Phase {
 }
 
 /// Der ganze Ablauf an einer Stelle — EINE Anmeldung fuer alles:
-///   Rosenweg-Konto (still, wenn <= 30 Tage) → Tunnel zum vm-gateway → Liste
+///   Rosenweg-Konto (gespeichert <= 30 Tage, sonst still per Kerberos, sonst
+///   Knopf/Browser) → Tunnel zum vm-gateway → Liste
 class AppZustand extends ChangeNotifier {
-  AppZustand() : konto = RosenwegKonto() {
-    netz = Netzlage(konto)..addListener(notifyListeners);
+  AppZustand({RosenwegKonto? konto}) : konto = konto ?? RosenwegKonto() {
+    netz = Netzlage(this.konto)..addListener(notifyListeners);
   }
 
   final RosenwegKonto konto;
   late final Netzlage netz;
 
   Phase phase = Phase.pruefen;
+  bool _neuStill = false;
   String? fehler;
   List<Computer> computer = const [];
 
@@ -63,7 +66,9 @@ class AppZustand extends ChangeNotifier {
         _setzen(Phase.liste);
         return;
       }
-      if (!await konto.angemeldet) {
+      // An einer Station (Domaenenanmeldung) ist die Person schon bekannt:
+      // ohne Knopf und ohne Browser direkt zu den eigenen Computern.
+      if (!await konto.angemeldet && !await konto.stillAnmelden()) {
         _setzen(Phase.kontoNoetig);
         return;
       }
@@ -80,9 +85,15 @@ class AppZustand extends ChangeNotifier {
     _setzen(Phase.fehler, '$e${p != null ? '\n\nEinzelheiten: $p' : ''}');
   }
 
-  /// Knopf "Mit Rosenweg-Konto anmelden".
+  /// Knopf "Mit Rosenweg-Konto anmelden". Erst still (Kerberos; z. B. nach
+  /// "Abmelden" in der App), sonst im Browser.
   Future<void> anmelden() async {
     try {
+      _setzen(Phase.pruefen);
+      if (await konto.stillAnmelden()) {
+        await _verbinden();
+        return;
+      }
       _setzen(Phase.anmelden);
       await konto.anmelden();
       await _verbinden();
@@ -105,9 +116,19 @@ class AppZustand extends ChangeNotifier {
       _setzen(Phase.liste);
     } on GatewayFehler catch (e) {
       if (e.status == 401) {
-        // Anmeldung abgelaufen oder widerrufen: ehrlich zurueck zum Knopf.
+        // Anmeldung abgelaufen oder widerrufen: einmal still neu (Kerberos),
+        // sonst ehrlich zurueck zum Knopf.
         await netz.abbauen();
         await konto.abmelden();
+        if (!_neuStill && await konto.stillAnmelden()) {
+          _neuStill = true;
+          try {
+            await _verbinden();
+          } finally {
+            _neuStill = false;
+          }
+          return;
+        }
         _setzen(Phase.kontoNoetig);
         return;
       }
@@ -124,11 +145,14 @@ class AppZustand extends ChangeNotifier {
     await aktualisieren();
   }
 
+  /// Knopf "Abmelden". Bewusst ohne neuen Start: der wuerde an einer
+  /// Station sofort wieder still anmelden. Der Knopf "Anmelden" danach
+  /// versucht es zuerst still.
   Future<void> abmelden() async {
     await netz.abbauen();
     await konto.abmelden();
     computer = const [];
-    await starten();
+    _setzen(Phase.kontoNoetig);
   }
 
   /// Beim Schliessen der App: Peer abmelden, damit der Tunnel-Schluessel
