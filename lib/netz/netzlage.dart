@@ -13,6 +13,7 @@ import '../gateway/gateway.dart';
 import '../konfig.dart';
 import '../native/rwtunnel.dart';
 import 'haus_erkennung.dart';
+import 'json_anfrage.dart';
 
 enum Lage { unbekannt, imHaus, unterwegs, keinZugang, test }
 
@@ -66,22 +67,17 @@ class Netzlage extends ChangeNotifier {
     _geraet ??= await _geraetKennung();
     final paar = RwTunnel.i.schluesselpaar();
 
-    final c = HttpClient()..connectionTimeout = const Duration(seconds: 10);
-    Map<String, dynamic> antwort;
-    try {
+    final a = await jsonAnfrage('API Tunnel', (c) async {
       final r = await c.postUrl(Uri.parse('${Konfig.api}/api/apps/tunnel'));
       r.headers
         ..set(HttpHeaders.authorizationHeader, 'Bearer $token')
         ..contentType = ContentType.json;
       r.write(jsonEncode({'geraet': _geraet, 'geraet_name': Platform.localHostname, 'schluessel': paar.oeffentlich}));
-      final a = await r.close();
-      final text = await a.transform(utf8.decoder).join();
-      final j = text.isEmpty ? <String, dynamic>{} : jsonDecode(text) as Map<String, dynamic>;
-      if (a.statusCode != 200) throw TunnelFehler((j['error'] as String?) ?? 'Verbindung abgelehnt (${a.statusCode})');
-      antwort = j['tunnel'] as Map<String, dynamic>;
-    } finally {
-      c.close();
-    }
+      return r.close();
+    });
+    final j = a.json is Map<String, dynamic> ? a.json as Map<String, dynamic> : const <String, dynamic>{};
+    if (a.status != 200) throw TunnelFehler((j['error'] as String?) ?? 'Verbindung abgelehnt (${a.status})');
+    final antwort = j['tunnel'] as Map<String, dynamic>;
 
     final konfig = antwort['config'] as String;
     final gw = antwort['gateway'] as String;

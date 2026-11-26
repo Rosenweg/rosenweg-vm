@@ -6,6 +6,8 @@ import 'dart:math';
 import 'package:crypto/crypto.dart';
 
 import '../konfig.dart';
+import '../netz/json_anfrage.dart';
+import '../protokoll.dart';
 import 'browser_anmeldung.dart';
 import 'schluesselbund.dart';
 
@@ -142,19 +144,21 @@ class RosenwegKonto {
   }
 
   /// null bei 400/401 (abgelaufen/widerrufen). Wirft bei Netzfehlern.
+  /// Token-Endpunkt von Authentik. null = abgelehnt (abgelaufen, widerrufen).
+  /// Ist Authentik nur gerade nicht erreichbar (502, HTML, Netz), wirft
+  /// [jsonAnfrage] — dann bleibt die Anmeldung gespeichert, statt dass ein
+  /// kurzer Neustart des Servers die Person abmeldet.
   Future<Map<String, dynamic>?> _token(Map<String, String> felder) async {
-    final c = HttpClient()..connectionTimeout = const Duration(seconds: 10);
-    try {
+    final a = await jsonAnfrage('Authentik Token', (c) async {
       final r = await c.postUrl(Uri.parse('${Konfig.authentik}/token/'));
       r.headers.contentType = ContentType('application', 'x-www-form-urlencoded', charset: 'utf-8');
       r.write(Uri(queryParameters: felder).query);
-      final a = await r.close();
-      final text = await a.transform(utf8.decoder).join();
-      if (a.statusCode == 200) return jsonDecode(text) as Map<String, dynamic>;
-      return null; // Token nie protokollieren, auch nicht im Fehlerfall.
-    } finally {
-      c.close();
-    }
+      return r.close();
+    });
+    if (a.status == 200 && a.json is Map<String, dynamic>) return a.json as Map<String, dynamic>;
+    // Token nie protokollieren; Status genuegt.
+    Protokoll.schreiben('Authentik Token: abgelehnt (Status ${a.status})');
+    return null;
   }
 }
 
