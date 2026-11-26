@@ -49,6 +49,7 @@ static const guint8 *bild_quelle; /* gehoert spice-glib */
 static int bild_breite, bild_hoehe, bild_zeile;
 static guint8 *bild_puffer;       /* BGRA, Zeile = breite*4 */
 static gboolean bild_neu;
+static gint64 erstes_bild_seit; /* >0: neue Flaeche wartet auf ersten Inhalt */
 
 /* Ton */
 static gboolean ton_wiedergabe = TRUE;
@@ -218,8 +219,15 @@ static void primaer_neu(SpiceChannel *k, gint format, gint w, gint h, gint zeile
     bild_zeile = zeile;
     g_free(bild_puffer);
     bild_puffer = g_malloc0((gsize)w * h * 4);
-    bild_kopieren(0, 0, w, h);
+    /* Nicht sofort kopieren: die neue Flaeche ist noch leer (schwarz). Erst
+     * das erste display-invalidate bringt Inhalt; bis dahin zeigt die App
+     * "Bild wird aufgebaut". */
+    bild_neu = FALSE;
+    erstes_bild_seit = g_get_monotonic_time();
     g_mutex_unlock(&bild_mutex);
+    char *t = g_strdup_printf("neue Bildflaeche %dx%d (Format %d, Zeile %d)", w, h, format, zeile);
+    log_zeile("bild", t);
+    g_free(t);
     melden(RW_E_BILD_GROESSE, w, h, 0, 0);
 }
 
@@ -227,7 +235,9 @@ static void primaer_weg(SpiceChannel *k, gpointer _) {
     (void)k; (void)_;
     g_mutex_lock(&bild_mutex);
     bild_quelle = NULL;
+    erstes_bild_seit = 0;
     g_mutex_unlock(&bild_mutex);
+    log_zeile("bild", "Bildflaeche abgebaut");
     melden(RW_E_BILD_WEG, 0, 0, 0, 0);
 }
 
@@ -235,7 +245,15 @@ static void bild_ungueltig(SpiceChannel *k, gint x, gint y, gint w, gint h, gpoi
     (void)k; (void)_;
     g_mutex_lock(&bild_mutex);
     bild_kopieren(x, y, w, h);
+    gint64 seit = erstes_bild_seit;
+    erstes_bild_seit = 0;
     g_mutex_unlock(&bild_mutex);
+    if (seit > 0) {
+        char *t = g_strdup_printf("erstes Bild nach %lld ms (Bereich %dx%d bei %d,%d)",
+                                  (long long)((g_get_monotonic_time() - seit) / 1000), w, h, x, y);
+        log_zeile("bild", t);
+        g_free(t);
+    }
 }
 
 int32_t rw_spice_bild_abholen(uint8_t *ziel, int32_t ziel_bytes, int32_t *breite, int32_t *hoehe) {

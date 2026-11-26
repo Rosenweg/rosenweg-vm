@@ -11,6 +11,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
 import '../native/rwspice.dart';
+import '../protokoll.dart';
 import 'scancodes.dart';
 
 /// Zeigt das Bild einer SPICE-Sitzung und schickt Maus, Tastatur und
@@ -54,16 +55,27 @@ class _SpiceBildschirmState extends State<SpiceBildschirm> with SingleTickerProv
     _abo = _spice.ereignisse.listen((e) {
       switch (e.art) {
         case SpiceEreignisArt.bildGroesse:
+          // Neue Flaeche (Start, Anmeldung im Gast, Aufloesung): altes Bild
+          // weg, "Bild wird aufgebaut" bis der erste Inhalt kommt.
+          Protokoll.schreiben('Bildflaeche ${e.a}x${e.b}');
           setState(() {
             _breite = e.a;
             _hoehe = e.b;
+            _bildWeg();
           });
+        case SpiceEreignisArt.bildWeg:
+          setState(_bildWeg);
         case SpiceEreignisArt.mausmodus:
           _absolut = e.a == 2;
         default:
           break;
       }
     });
+  }
+
+  void _bildWeg() {
+    _bild?.dispose();
+    _bild = null;
   }
 
   void _abholen() {
@@ -87,8 +99,10 @@ class _SpiceBildschirmState extends State<SpiceBildschirm> with SingleTickerProv
       codec.dispose();
       desc.dispose();
       buf.dispose();
-      if (!mounted) {
+      if (!mounted || w != _breite || h != _hoehe) {
+        // Inzwischen neue Flaeche: altes Bild nicht mehr zeigen.
         frame.image.dispose();
+        _dekodiert = false;
         return;
       }
       final alt = _bild;
@@ -190,7 +204,13 @@ class _SpiceBildschirmState extends State<SpiceBildschirm> with SingleTickerProv
             color: Colors.black,
             child: SizedBox.expand(
               child: bild == null
-                  ? const SizedBox()
+                  ? const Center(
+                      child: Column(mainAxisSize: MainAxisSize.min, children: [
+                        CircularProgressIndicator(color: Colors.white70),
+                        SizedBox(height: 16),
+                        Text('Bild wird aufgebaut …', style: TextStyle(color: Colors.white70)),
+                      ]),
+                    )
                   : RawImage(image: bild, fit: BoxFit.contain, filterQuality: FilterQuality.medium),
             ),
           ),
