@@ -100,15 +100,17 @@ cp native/rwspice/drittanbieter/LICENSE-miniaudio "$L"/
     echo "Mitgelieferte Bibliotheken (MSYS2 UCRT64, dynamisch gelinkt)"
     echo "Quelltext: https://packages.msys2.org/ (PKGBUILD je Paket, Quellarchive)"
     echo
-    while read -r d; do
-        printf '%-40s %s\n' "$(basename "$d")" "$(pacman -Qoq "$d" 2>/dev/null | head -n1) $(pacman -Q "$(pacman -Qoq "$d" 2>/dev/null | head -n1)" 2>/dev/null | cut -d' ' -f2)"
-    done < "$AUS/dlls.txt"
+    # "…/x.dll is owned by <paket> <version>" (ein Aufruf fuer alle)
+    # shellcheck disable=SC2046
+    pacman -Qo $(cat "$AUS/dlls.txt") 2>/dev/null \
+        | sed -n 's|^.*/\([^/ ]*\) is owned by \(.*\)$|\1  \2|p' | sort
 } > "$L/BIBLIOTHEKEN.txt"
 
 schritt "Ladetest im Buendel"
 gcc -O1 -o "$AUS/laden_test.exe" native/rwspice/test/laden_test.c
 # PATH ohne MSYS2: nur das Buendel und Windows selbst
-( export PATH="/c/Windows/System32:/c/Windows"; "$AUS/laden_test.exe" "$(cygpath -w "$B")" ) \
+BW="$(cygpath -w "$B")"
+( export PATH="/c/Windows/System32:/c/Windows"; "$AUS/laden_test.exe" "$BW" ) \
     || fehler "Ladetest gescheitert - fehlt eine DLL im Buendel?"
 rm -f "$AUS/laden_test.exe"
 
