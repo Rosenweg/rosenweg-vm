@@ -15,7 +15,8 @@ Was der Lauf braucht:
 - **Systempakete** über das eingeschränkte `apt-get` (nur wenn sie fehlen):
   `clang cmake ninja-build pkg-config xz-utils curl unzip git libgtk-3-dev
   liblzma-dev libstdc++-14-dev libspice-client-glib-2.0-dev libsecret-1-dev
-  libjsoncpp-dev`. Ist `sudo -n apt-get` für eines davon nicht erlaubt, bricht
+  libjsoncpp-dev`, für das .deb dazu `dpkg-dev binutils patchelf
+  librsvg2-bin file lintian`. Ist `sudo -n apt-get` für eines davon nicht erlaubt, bricht
   der Lauf mit der Liste der fehlenden Pakete ab. Dann die Pakete einmal von
   Hand auf CT 140 installieren oder die sudo-Regel erweitern.
 - **Go 1.27.4 und Flutter 3.47.5** werden mit fester Prüfsumme nach
@@ -25,7 +26,14 @@ Was er tut: Go-Tests (Tunnel mit echtem WireGuard-Handshake, Gateway Ende zu
 Ende), `librwtunnel.so` und `librwspice.so` bauen, `flutter analyze`, `flutter
 test`, `flutter build linux --release`, Gateway bauen. Daraus entstehen die
 Artefakte `rosenweg-vm-linux-x64.tar.gz` (App samt beider Bibliotheken,
-LICENSE, LIZENZEN.md) und `vm-gateway` mit Unit und Setup-Skript.
+LICENSE, LIZENZEN.md), das Debian-Paket `rosenweg-vm_<version>_amd64.deb`
+(`linux/paket/bauen.sh --nur-paket`) und `vm-gateway` mit Unit und
+Setup-Skript.
+
+Solange der Runner das Repo nicht bedienen darf, baut man das .deb im
+Bau-Container CT 141 (Debian 13, pve3): `linux/paket/im-container.sh`. Das
+schickt den Arbeitsstand als Archiv über den Knoten hinein und holt das
+Paket zurück nach `linux/paket/out/`; Go und Flutter bleiben dort im Cache.
 
 Nicht im Lauf: der Integrationstest gegen einen SPICE-Testserver. Dafür
 bräuchte es ein Display (Xvfb) und spice-server; das kommt, sobald ein erstes

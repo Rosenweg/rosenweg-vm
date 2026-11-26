@@ -1,0 +1,18 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Rosenweg Virtuelle Computer
+GenericName=Virtuelle Computer
+Comment=Die eigenen virtuellen Computer aus dem Rosenweg-Cluster öffnen
+Exec=rosenweg-vm
+# Name im Symbol-Thema (hicolor), kein Pfad: so lädt GTK das Symbol in jeder
+# Grösse selbst, und Leiste, Menü und Fenster zeigen dasselbe.
+Icon=rosenweg-vm
+Terminal=false
+# Der Dateiname ist die GTK-Anwendungskennung (APPLICATION_ID in
+# linux/CMakeLists.txt). Cinnamon und GNOME ordnen das Fenster darüber dem
+# Starter zu; StartupWMClass steht trotzdem da, für Leisten, die nur WM_CLASS
+# vergleichen (plank, xfce4-panel).
+StartupWMClass=ch.rosenweg4303.vm
+Categories=Network;RemoteAccess;
+Keywords=VM;SPICE;Proxmox;Maschinen;Fernzugriff;

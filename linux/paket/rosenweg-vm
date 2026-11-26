@@ -1,0 +1,8 @@
+#!/bin/sh
+# Startet Rosenweg Virtuelle Computer aus /opt/rosenweg-vm.
+#
+# Ein Skript statt eines Verweises auf die Programmdatei: das Flutter-Bündel
+# sucht data/ und lib/ neben der echten Datei. Über /proc/self/exe ginge das
+# auch mit einem Verweis, aber ein Skript bleibt der Ort, an dem man später
+# eine Umgebungsvariable setzen kann, ohne das Paket neu zu schnüren.
+exec /opt/rosenweg-vm/rosenweg_vm "$@"

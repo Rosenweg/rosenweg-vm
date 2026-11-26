@@ -39,7 +39,8 @@ jobs:
         run: |
           noetig="clang cmake ninja-build pkg-config xz-utils curl unzip git \
                   libgtk-3-dev liblzma-dev libstdc++-14-dev \
-                  libspice-client-glib-2.0-dev libsecret-1-dev libjsoncpp-dev"
+                  libspice-client-glib-2.0-dev libsecret-1-dev libjsoncpp-dev \
+                  dpkg-dev binutils patchelf librsvg2-bin file lintian"
           fehlt=""
           for p in $noetig; do dpkg -s "$p" >/dev/null 2>&1 || fehlt="$fehlt $p"; done
           if [ -n "$fehlt" ]; then
@@ -98,6 +99,15 @@ jobs:
           cp LICENSE LIZENZEN.md build/linux/x64/release/bundle/
           tar -C build/linux/x64/release -czf ausgabe/rosenweg-vm-linux-x64.tar.gz bundle
           cp gateway/build/vm-gateway gateway/vm-gateway.service gateway/setup.sh ausgabe/
+
+      # Dasselbe .deb wie im Bau-Container (linux/paket/im-container.sh), nur
+      # aus dem Buendel dieses Laufs. Verteilt wird es nicht von hier: die
+      # Stationen holen es mit Pruefsumme vom PXE-Server (os-stationen,
+      # pakete/rosenweg-vm/).
+      - name: Debian-Paket
+        run: |
+          linux/paket/bauen.sh --nur-paket
+          cp linux/paket/out/*.deb ausgabe/
 
       - uses: actions/upload-artifact@v4
         with:

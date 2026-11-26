@@ -52,3 +52,7 @@ app.*.map.json
 # Gebaute native Bibliotheken
 /native/*/build/
 /gateway/build/
+
+# Debian-Paket (linux/paket/bauen.sh)
+/linux/paket/out/
+/linux/paket/arbeit/

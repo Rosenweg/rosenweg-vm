@@ -1,9 +1,30 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import 'dart:convert';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rosenweg_vm/anmeldung/schluesselbund.dart';
+
+/// Wie libsecret ohne Secret-Service-Dienst (Station ohne gnome-keyring).
+class _OhneDienst extends FlutterSecureStorage {
+  const _OhneDienst();
+  static PlatformException get _fehler =>
+      PlatformException(code: 'Libsecret error', message: 'Failed to unlock the keyring');
+  @override
+  Future<String?> read({required String key, AppleOptions? iOptions, AndroidOptions? aOptions,
+          LinuxOptions? lOptions, WebOptions? webOptions, AppleOptions? mOptions, WindowsOptions? wOptions}) =>
+      Future.error(_fehler);
+  @override
+  Future<void> write({required String key, required String? value, AppleOptions? iOptions,
+          AndroidOptions? aOptions, LinuxOptions? lOptions, WebOptions? webOptions,
+          AppleOptions? mOptions, WindowsOptions? wOptions}) =>
+      Future.error(_fehler);
+  @override
+  Future<void> delete({required String key, AppleOptions? iOptions, AndroidOptions? aOptions,
+          LinuxOptions? lOptions, WebOptions? webOptions, AppleOptions? mOptions, WindowsOptions? wOptions}) =>
+      Future.error(_fehler);
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -35,5 +56,16 @@ void main() {
     await s.setzen({'refresh_token': null, 'angemeldet_am': null});
     expect(await roh.readAll(), isEmpty);
     expect(await Schluesselbund(roh).lesen('refresh_token'), isNull);
+  });
+
+  test('ohne Schluesselbund-Dienst: Werte bleiben im Speicher, kein Fehler', () async {
+    final s = Schluesselbund(const _OhneDienst());
+    expect(await s.lesen('refresh_token'), isNull);
+    expect(s.nurImSpeicher, isTrue);
+    await s.setzen({'refresh_token': 'x', 'geraet': 'g'});
+    expect(await s.lesen('refresh_token'), 'x');
+    await s.setzen({'refresh_token': null});
+    expect(await s.lesen('refresh_token'), isNull);
+    expect(await s.lesen('geraet'), 'g');
   });
 }

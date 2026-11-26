@@ -114,6 +114,13 @@ foreach(rw_lib rwspice rwtunnel)
   endif()
 endforeach()
 
+# App-Symbol im Buendel: das Fenster laedt es von hier, wenn das Symbol nicht
+# im System-Thema steht (Bau ohne Paket, tar.gz aus dem CI-Lauf). Das .deb
+# legt es zusaetzlich nach hicolor (linux/paket/bauen.sh).
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../assets/logo/rosenweg-vm-512.png"
+  DESTINATION "${INSTALL_BUNDLE_DATA_DIR}" RENAME "rosenweg-vm.png"
+  COMPONENT Runtime)
+
 foreach(bundled_library ${PLUGIN_BUNDLED_LIBRARIES})
   install(FILES "${bundled_library}"
     DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
