@@ -2,6 +2,26 @@
 
 Stand 25.11.2026.
 
+## Ablauf im Überblick
+
+```
+Start ─► Rosenweg-Konto (Authentik rosenweg-apps, PKCE)
+         still, wenn die letzte Browser-Anmeldung ≤ 30 Tage her ist
+              ▼
+         POST /api/apps/tunnel (Haupt-API, nur öffentlicher Schlüssel)
+              ▼
+         WireGuard im Prozess der App ──► vm-gateway (eigener CT)
+         im Haus: LAN-Endpunkt · unterwegs: öffentlicher Endpunkt
+              ▼
+         Gateway prüft Token + Gerät, fragt Proxmox mit eigenem Token,
+         gibt nur, was Proxmox <person>@authentik erlaubt
+              ▼
+         Liste „Meine Computer“ ─► SPICE durch den Gateway ─► pve:3128
+              ▼
+         librwspice (spice-client-glib) ─► Bild, Maus, Tastatur, Ton, USB
+App zu ─► Peer abgemeldet (Schlüssel ungültig); Absturz ─► Gateway räumt nach 3–5 Min auf
+```
+
 ## 1. SPICE: spice-client-glib, dynamisch gelinkt, hinter einer eigenen C-Schicht
 
 **Entscheid (Stefan): SPICE direkt, nicht VNC zuerst.** Umgesetzt mit der
