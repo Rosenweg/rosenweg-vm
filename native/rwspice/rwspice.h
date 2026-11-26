@@ -31,7 +31,7 @@
 extern "C" {
 #endif
 
-#define RW_SPICE_ABI 4
+#define RW_SPICE_ABI 5
 
 /* Kanalarten fuer RW_E_KANAL: was der Computer anbietet (Ton nur mit
  * audio0 driver=spice, USB nur mit usbN: spice in Proxmox). */
@@ -39,6 +39,7 @@ enum {
     RW_K_WIEDERGABE = 1,
     RW_K_AUFNAHME   = 2,
     RW_K_USB        = 3,
+    RW_K_ORDNER     = 4, /* WebDAV (im Gast spice-webdavd) */
 };
 
 /* Ereignisse an die App. Kommen aus dem GLib-Thread; Dart nimmt sie mit
@@ -55,6 +56,7 @@ enum {
     RW_E_USB_FEHLER  = 9,  /* Durchreichen fehlgeschlagen; Text via rw_spice_letzter_fehler */
     RW_E_AGENT       = 10, /* a = 1 Gast-Agent da (Groesse anpassen, Zwischenablage) */
     RW_E_KANAL       = 11, /* Kanal angeboten: a = RW_K_*, b = 1 neu / 0 weg */
+    RW_E_ORDNER      = 12, /* a = 1 Ordner freigegeben, 0 nicht; b = 1 Fehler (Text via rw_spice_letzter_fehler) */
 };
 
 enum {
@@ -105,6 +107,11 @@ RW_EXPORT void rw_spice_ton(int32_t wiedergabe, int32_t mikrofon);
 /* USB: JSON-Liste [{"id":"<bus>-<adresse>","name":"…","verbunden":true,"moeglich":true,"grund":""}] */
 RW_EXPORT char *rw_spice_usb_liste(void);
 RW_EXPORT void rw_spice_usb_schalten(const char *id, int32_t an);
+
+/* Ordner freigeben (SPICE WebDAV). pfad NULL/leer = Freigabe beenden.
+ * rw_spice_ordner_moeglich: 0, wenn spice-glib ohne phodav gebaut ist. */
+RW_EXPORT int32_t rw_spice_ordner_moeglich(void);
+RW_EXPORT void rw_spice_ordner(const char *pfad, int32_t nur_lesen);
 
 /* Letzte Fehlermeldung (Text gehoert dem Aufrufer, mit rw_spice_frei freigeben). */
 RW_EXPORT char *rw_spice_letzter_fehler(void);

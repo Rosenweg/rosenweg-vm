@@ -12,6 +12,10 @@
 #include "rwspice.h"
 
 #include <spice-client.h>
+#include <dlfcn.h>
+#ifdef __APPLE__
+#include <libusb.h>
+#endif
 #include <string.h>
 #include <stdio.h>
 
@@ -37,6 +41,7 @@ static SpiceMainChannel *hauptkanal;
 static SpiceInputsChannel *eingabekanal;
 static SpiceChannel *bildkanal;
 static SpiceRecordChannel *aufnahmekanal;
+static SpiceChannel *webdavkanal;
 static SpiceUsbDeviceManager *usb;
 
 static GMutex fehler_mutex;
@@ -480,6 +485,47 @@ static char *usb_id(SpiceUsbDevice *d) {
     return spice_usb_device_get_description(d, "%4$d-%5$d");
 }
 
+/* macOS: Geraete, die ein Treiber von macOS haelt (Massenspeicher, Tastatur/
+ * Maus, Ton, Netz/Modem, Video, Hub, Bluetooth), kann libusb ohne Root bzw.
+ * das Entitlement com.apple.vm.device-access nicht abhaengen; der Versuch
+ * setzt das Geraet zurueck ("nicht korrekt ausgeworfen"). Darum gar nicht
+ * erst anbieten. Gelesen werden nur die zwischengespeicherten Deskriptoren
+ * (kein Oeffnen, kein Reset). Liefert die Klasse als Text oder NULL. */
+static const char *usb_mac_gesperrt(SpiceUsbDevice *d) {
+#ifdef __APPLE__
+    libusb_device *ld = (libusb_device *)spice_usb_device_get_libusb_device(d);
+    if (!ld) return NULL;
+    struct libusb_device_descriptor dd;
+    if (libusb_get_device_descriptor(ld, &dd) == 0) {
+        if (dd.bDeviceClass == LIBUSB_CLASS_HUB) return "Hub";
+        if (dd.bDeviceClass == LIBUSB_CLASS_WIRELESS) return "Funk/Bluetooth";
+    }
+    struct libusb_config_descriptor *cfg = NULL;
+    if (libusb_get_active_config_descriptor(ld, &cfg) != 0 &&
+        libusb_get_config_descriptor(ld, 0, &cfg) != 0) return NULL;
+    const char *k = NULL;
+    for (int i = 0; cfg && i < cfg->bNumInterfaces && !k; i++) {
+        for (int a = 0; a < cfg->interface[i].num_altsetting && !k; a++) {
+            switch (cfg->interface[i].altsetting[a].bInterfaceClass) {
+            case LIBUSB_CLASS_MASS_STORAGE: k = "Massenspeicher"; break;
+            case LIBUSB_CLASS_HID: k = "Tastatur/Maus (HID)"; break;
+            case LIBUSB_CLASS_AUDIO: k = "Ton"; break;
+            case LIBUSB_CLASS_COMM: case LIBUSB_CLASS_DATA: k = "Netz/Modem (CDC)"; break;
+            case LIBUSB_CLASS_VIDEO: k = "Kamera"; break;
+            case LIBUSB_CLASS_HUB: k = "Hub"; break;
+            case LIBUSB_CLASS_WIRELESS: k = "Funk/Bluetooth"; break;
+            default: break;
+            }
+        }
+    }
+    libusb_free_config_descriptor(cfg);
+    return k;
+#else
+    (void)d;
+    return NULL;
+#endif
+}
+
 typedef struct { GMutex m; GCond c; gboolean fertig; char *json; } UsbAnfrage;
 
 static void json_text(GString *s, const char *t) {
@@ -502,7 +548,8 @@ static gboolean usb_liste_bauen(gpointer p) {
             char *id = usb_id(d);
             char *name = spice_usb_device_get_description(d, "%s %s");
             GError *e = NULL;
-            gboolean moeglich = spice_usb_device_manager_can_redirect_device(usb, d, &e);
+            const char *mac = usb_mac_gesperrt(d);
+            gboolean moeglich = !mac && spice_usb_device_manager_can_redirect_device(usb, d, &e);
             if (i) g_string_append_c(s, ',');
             g_string_append(s, "{\"id\":");
             json_text(s, id);
@@ -512,6 +559,8 @@ static gboolean usb_liste_bauen(gpointer p) {
                                    spice_usb_device_manager_is_device_connected(usb, d) ? "true" : "false",
                                    moeglich ? "true" : "false");
             json_text(s, e ? e->message : "");
+            g_string_append(s, ",\"mac_treiber\":");
+            json_text(s, mac ? mac : "");
             g_string_append_c(s, '}');
             g_clear_error(&e);
             g_free(id);
@@ -563,7 +612,14 @@ static gboolean usb_schalten(gpointer p) {
         SpiceUsbDevice *d = g_ptr_array_index(liste, i);
         char *id = usb_id(d);
         if (g_strcmp0(id, u->id) == 0) {
-            if (u->an)
+            const char *mac = u->an ? usb_mac_gesperrt(d) : NULL;
+            if (mac) {
+                /* Nie ein Geraet anfassen, das macOS selbst nutzt. */
+                char *t = g_strdup_printf("USB %s nicht weitergegeben: %s (macOS-Treiber)", id, mac);
+                fehler_setzen(t);
+                g_free(t);
+                melden(RW_E_USB_FEHLER, 0, 0, 0, 0);
+            } else if (u->an)
                 spice_usb_device_manager_connect_device_async(usb, d, NULL, usb_fertig, NULL);
             else
                 spice_usb_device_manager_disconnect_device_async(usb, d, NULL, usb_getrennt, NULL);
@@ -580,6 +636,55 @@ void rw_spice_usb_schalten(const char *id, int32_t an) {
     u->an = an;
     g_strlcpy(u->id, id, sizeof u->id);
     im_kontext(usb_schalten, u);
+}
+
+/* ── Ordner freigeben (WebDAV) ───────────────────────────────────────── */
+
+int32_t rw_spice_ordner_moeglich(void) {
+    /* spice-glib bringt den WebDAV-Server nur mit, wenn es mit phodav gebaut
+     * ist; ohne bleibt der Kanal stumm. */
+    return dlsym(RTLD_DEFAULT, "phodav_server_new") != NULL ? 1 : 0;
+}
+
+static gboolean ordner_aktiv;
+
+typedef struct { char *pfad; int nur_lesen; } OrdnerWahl;
+
+static void ordner_frei(gpointer p) { OrdnerWahl *o = p; g_free(o->pfad); g_free(o); }
+
+static gboolean ordner_setzen(gpointer p) {
+    OrdnerWahl *o = p;
+    if (!sitzung || !webdavkanal) {
+        fehler_setzen("Ordner freigeben: kein WebDAV-Kanal (im Gast fehlt spice-webdavd)");
+        melden(RW_E_ORDNER, 0, 1, 0, 0);
+        return G_SOURCE_REMOVE;
+    }
+    gboolean offen = ordner_aktiv;
+    /* Wechsel und Ende: Kanal zu; ein neuer Ordner gilt erst nach erneutem
+     * Verbinden (phodav liest shared-dir beim Oeffnen). */
+    spice_channel_disconnect(webdavkanal, SPICE_CHANNEL_CLOSED);
+    g_object_set(sitzung, "shared-dir", o->pfad, "share-dir-ro", o->nur_lesen ? TRUE : FALSE, NULL);
+    if (o->pfad && *o->pfad) {
+        gboolean ok = spice_channel_connect(webdavkanal);
+        char *t = g_strdup_printf("Ordner freigegeben%s: %s%s", o->nur_lesen ? " (nur lesen)" : "", o->pfad,
+                                  ok ? "" : " — Kanal liess sich nicht oeffnen");
+        if (ok) log_zeile("ordner", t); else fehler_setzen(t);
+        ordner_aktiv = ok;
+        g_free(t);
+        melden(RW_E_ORDNER, ok ? 1 : 0, ok ? 0 : 1, 0, 0);
+    } else {
+        log_zeile("ordner", offen ? "Ordnerfreigabe beendet" : "Ordnerfreigabe aus");
+        ordner_aktiv = FALSE;
+        melden(RW_E_ORDNER, 0, 0, 0, 0);
+    }
+    return G_SOURCE_REMOVE;
+}
+
+void rw_spice_ordner(const char *pfad, int32_t nur_lesen) {
+    OrdnerWahl *o = g_new0(OrdnerWahl, 1);
+    o->pfad = (pfad && *pfad) ? g_strdup(pfad) : NULL;
+    o->nur_lesen = nur_lesen;
+    im_kontext_mit(ordner_setzen, o, ordner_frei);
 }
 
 /* ── Kanaele und Sitzung ─────────────────────────────────────────────── */
@@ -626,6 +731,7 @@ static int kanal_art(SpiceChannel *k) {
     if (SPICE_IS_PLAYBACK_CHANNEL(k)) return RW_K_WIEDERGABE;
     if (SPICE_IS_RECORD_CHANNEL(k)) return RW_K_AUFNAHME;
     if (SPICE_IS_USBREDIR_CHANNEL(k)) return RW_K_USB;
+    if (SPICE_IS_WEBDAV_CHANNEL(k)) return RW_K_ORDNER;
     return 0;
 }
 
@@ -682,6 +788,11 @@ static void kanal_neu(SpiceSession *s, SpiceChannel *k, gpointer _) {
         spice_channel_connect(k);
         return;
     }
+    if (SPICE_IS_WEBDAV_CHANNEL(k)) {
+        /* Erst verbinden, wenn die Person einen Ordner freigibt. */
+        webdavkanal = k;
+        return;
+    }
     /* USB-Kanaele verbindet der UsbDeviceManager selbst; Cursor, WebDAV,
      * Smartcard und Port bleiben fuer den Anfang aus. */
 }
@@ -693,6 +804,7 @@ static void kanal_weg(SpiceSession *s, SpiceChannel *k, gpointer _) {
     if ((SpiceChannel *)hauptkanal == k) hauptkanal = NULL;
     if ((SpiceChannel *)eingabekanal == k) eingabekanal = NULL;
     if ((SpiceChannel *)aufnahmekanal == k) { aufnahmekanal = NULL; aufnahme_schliessen(); }
+    if (webdavkanal == k) { webdavkanal = NULL; ordner_aktiv = FALSE; }
     if (bildkanal == k) {
         bildkanal = NULL;
         g_mutex_lock(&bild_mutex);

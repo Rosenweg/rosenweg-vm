@@ -61,6 +61,12 @@ Stand 25.11.2026. Aufwand grob in Personentagen (PT), ohne Store-Verfahren.
   die Apple-Berechtigung `com.apple.vm.device-access` (nur auf Antrag).
   Herstellereigene Geräte ohne Systemtreiber (Dongles, manche Seriell-Adapter,
   Messgeräte) gehen.
+  **Die App bietet solche Geräte deshalb gar nicht an** (Test 26.11.2026:
+  ein Versuch mit einem USB-Stick setzte ihn zurück, macOS meldete „nicht
+  korrekt ausgeworfen“). Erkannt an den zwischengespeicherten Deskriptoren,
+  ohne das Gerät zu öffnen: Interface-Klasse Massenspeicher, HID, Audio,
+  CDC/Daten, Video, Hub, Funk. Sie stehen grau im USB-Menü mit dem Hinweis
+  auf „Ordner freigeben“. Unter Windows und Linux bleibt alles wie gehabt.
 - **Aufwand:** 3–5 PT (Bündeln, Signieren, Notarisieren).
 
 ## Android
@@ -103,6 +109,25 @@ Stand 25.11.2026. Aufwand grob in Personentagen (PT), ohne Store-Verfahren.
 - **Tunnel:** ✓ `librwtunnel.a` gebaut. Läuft im Vordergrund ohne Network
   Extension; geht die App in den Hintergrund, endet die Sitzung ohnehin.
 - **Aufwand:** 8–12 PT (mit UTM-Skripten als Vorlage), dazu Apple-Verteilung.
+
+## Ordner freigeben (SPICE WebDAV)
+
+Statt USB-Sticks durchzureichen: Knopf „Ordner freigeben“ in der
+Bildschirmleiste, Ordner wählen (am Mac auch ein Stick unter `/Volumes`),
+optional „nur lesen“. spice-glib setzt `shared-dir`/`share-dir-ro` und öffnet
+den WebDAV-Kanal; der Ordner lebt nur für diese Sitzung.
+
+- **Gast Linux:** Paket `spice-webdavd`; im Dateimanager erscheint „Spice
+  client folder“ (bzw. `dav://localhost:9843/`).
+- **Gast Windows:** in den SPICE Guest Tools („Spice webdav proxy“), danach
+  als Netzlaufwerk.
+- **Ohne WebDAV-Kanal** (spice-webdavd fehlt): Knopf grau, Hinweis
+  „Technik: spice-webdavd installieren“.
+- **Client:** spice-glib muss mit **phodav** gebaut sein. Die MacPorts-
+  Fassung auf dem Entwicklungs-Mac ist es nicht (kein `libphodav` gelinkt);
+  die App erkennt das (`rw_spice_ordner_moeglich`) und sagt es. Für macOS
+  heisst das: spice-gtk mit phodav (libsoup 3) im eigenen Stapel bauen
+  (siehe „Auslieferung“). Debian/MSYS2 liefern spice-glib mit phodav.
 
 ## Gemeinsam, noch offen
 

@@ -13,7 +13,8 @@ import 'bibliothek.dart';
 enum SpiceKanal {
   wiedergabe(1),
   aufnahme(2),
-  usb(3);
+  usb(3),
+  ordner(4);
 
   const SpiceKanal(this.code);
   final int code;
@@ -39,7 +40,10 @@ enum SpiceEreignisArt {
   agent(10),
 
   /// Kanal angeboten (a = [SpiceKanal].code, b = 1 neu / 0 weg).
-  kanal(11);
+  kanal(11),
+
+  /// Ordnerfreigabe: a = 1 aktiv, b = 1 Fehler.
+  ordner(12);
 
   const SpiceEreignisArt(this.code);
   final int code;
@@ -61,8 +65,12 @@ class SpiceEreignis {
 }
 
 class UsbGeraet {
-  UsbGeraet(this.id, this.name, this.verbunden, this.moeglich, this.grund);
+  UsbGeraet(this.id, this.name, this.verbunden, this.moeglich, this.grund, [this.macTreiber = '']);
   final String id, name, grund;
+
+  /// macOS: Klasse, fuer die macOS selbst einen Treiber hat (Massenspeicher,
+  /// HID …); leer = keiner. Solche Geraete werden nicht angeboten.
+  final String macTreiber;
   final bool verbunden, moeglich;
 }
 
@@ -88,6 +96,8 @@ class RwSpice {
         _ton = lib.lookupFunction<Void Function(Int32, Int32), void Function(int, int)>('rw_spice_ton'),
         _usbListe = lib.lookupFunction<Pointer<Utf8> Function(), Pointer<Utf8> Function()>('rw_spice_usb_liste'),
         _usbSchalten = lib.lookupFunction<Void Function(Pointer<Utf8>, Int32), void Function(Pointer<Utf8>, int)>('rw_spice_usb_schalten'),
+        _ordner = lib.lookupFunction<Void Function(Pointer<Utf8>, Int32), void Function(Pointer<Utf8>, int)>('rw_spice_ordner'),
+        ordnerMoeglich = lib.lookupFunction<Int32 Function(), int Function()>('rw_spice_ordner_moeglich')() == 1,
         _fehler = lib.lookupFunction<Pointer<Utf8> Function(), Pointer<Utf8> Function()>('rw_spice_letzter_fehler'),
         _frei = lib.lookupFunction<Void Function(Pointer<Utf8>), void Function(Pointer<Utf8>)>('rw_spice_frei') {
     // listener: das Ereignis kommt aus dem GLib-Thread und wird hier im
@@ -126,7 +136,20 @@ class RwSpice {
   final void Function(int, int) taste, bildschirmGroesse, _ton;
   final void Function() feststellAus;
   final Pointer<Utf8> Function() _usbListe, _fehler;
-  final void Function(Pointer<Utf8>, int) _usbSchalten;
+  final void Function(Pointer<Utf8>, int) _usbSchalten, _ordner;
+
+  /// spice-glib mit WebDAV-Server (phodav) gebaut?
+  final bool ordnerMoeglich;
+
+  /// Ordner freigeben ([pfad] null = beenden).
+  void ordner(String? pfad, {bool nurLesen = false}) {
+    final p = (pfad ?? '').toNativeUtf8();
+    try {
+      _ordner(p, nurLesen ? 1 : 0);
+    } finally {
+      malloc.free(p);
+    }
+  }
   final void Function(Pointer<Utf8>) _frei;
   late final NativeCallable<_EreignisC> _cb;
   final _ereignisse = StreamController<SpiceEreignis>.broadcast();
@@ -173,7 +196,7 @@ class RwSpice {
       return [
         for (final e in l.cast<Map<String, dynamic>>())
           UsbGeraet(e['id'] as String, (e['name'] as String).trim(), e['verbunden'] as bool, e['moeglich'] as bool,
-              e['grund'] as String? ?? ''),
+              e['grund'] as String? ?? '', e['mac_treiber'] as String? ?? ''),
       ];
     } finally {
       _frei(p);

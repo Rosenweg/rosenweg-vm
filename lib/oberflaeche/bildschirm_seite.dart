@@ -2,6 +2,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
 import '../app_zustand.dart';
@@ -43,10 +44,15 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
   bool _kanaeleBekannt = false;
   Timer? _kanalWarten;
 
+  /// Freigegebener Ordner (null = keiner) und ob nur lesend.
+  String? _ordner;
+  bool _ordnerNurLesen = false;
+
   static const _ohne = {
     SpiceKanal.wiedergabe: 'Dieser Computer hat keine Tonausgabe ueber SPICE – Technik: Audio-Geraet „SPICE“ hinzufuegen.',
     SpiceKanal.aufnahme: 'Dieser Computer hat keinen Toneingang ueber SPICE – Technik: Audio-Geraet „SPICE“ hinzufuegen.',
     SpiceKanal.usb: 'Dieser Computer hat keine USB-Weiterleitung ueber SPICE – Technik: USB-Geraet „Spice-Port“ hinzufuegen.',
+    SpiceKanal.ordner: 'Dieser Computer kann keine Ordner annehmen – Technik: spice-webdavd installieren.',
   };
 
   bool _fehlt(SpiceKanal k) => _kanaeleBekannt && !_kanaele.contains(k);
@@ -59,7 +65,7 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
     setState(() => _kanaeleBekannt = true);
     String jn(SpiceKanal k) => _kanaele.contains(k) ? 'ja' : 'nein';
     Protokoll.schreiben('Bildschirm ${widget.computer.vmid}: Ton ${jn(SpiceKanal.wiedergabe)}, '
-        'Mikrofon ${jn(SpiceKanal.aufnahme)}, USB ${jn(SpiceKanal.usb)}');
+        'Mikrofon ${jn(SpiceKanal.aufnahme)}, USB ${jn(SpiceKanal.usb)}, Ordner ${jn(SpiceKanal.ordner)}');
   }
 
   void _hinweis(SpiceKanal k) =>
@@ -81,6 +87,7 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
       _meldung = null;
       _kanaele.clear();
       _kanaeleBekannt = false;
+      _ordner = null; // neue Sitzung: Freigabe ist weg
     });
     try {
       if (AppZustand.testSpice.isNotEmpty) {
@@ -115,6 +122,13 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
   void _ereignis(SpiceEreignis e) {
     if (!mounted) return;
     switch (e.art) {
+      case SpiceEreignisArt.ordner:
+        if (e.b == 1) {
+          final t = _spice.letzterFehler();
+          Protokoll.schreiben('Ordner freigeben fehlgeschlagen: $t');
+          setState(() => _ordner = null);
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Ordner freigeben ging nicht: $t')));
+        }
       case SpiceEreignisArt.kanal:
         final k = SpiceKanal.aus(e.a);
         if (k != null) setState(() => e.b == 1 ? _kanaele.add(k) : _kanaele.remove(k));
@@ -161,6 +175,9 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
 
   Future<void> _usbMenue() async {
     final liste = _spice.usbListe();
+    for (final g in liste.where((g) => g.macTreiber.isNotEmpty)) {
+      Protokoll.schreiben('USB ${g.id} (${g.name}) nicht angeboten: ${g.macTreiber} (macOS-Treiber)');
+    }
     await showModalBottomSheet<void>(
       context: context,
       builder: (context) => StatefulBuilder(builder: (context, neu) {
@@ -172,7 +189,11 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
           for (final g in aktuell)
             SwitchListTile(
               title: Text(g.name.isEmpty ? 'USB-Geraet ${g.id}' : g.name),
-              subtitle: g.moeglich ? null : Text(g.grund.isEmpty ? 'nicht moeglich' : g.grund),
+              subtitle: g.macTreiber.isNotEmpty
+                  ? Text('${g.macTreiber}: nutzt der Mac selbst. USB-Sticks bitte ueber „Ordner freigeben“ einbinden.')
+                  : g.moeglich
+                      ? null
+                      : Text(g.grund.isEmpty ? 'nicht moeglich' : g.grund),
               value: g.verbunden,
               onChanged: g.moeglich
                   ? (an) {
@@ -183,6 +204,68 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
             ),
         ]);
       }),
+    );
+  }
+
+  /// Ordner (oder Stick unter /Volumes) per SPICE-WebDAV an den Gast geben.
+  Future<void> _ordnerMenue() async {
+    if (!_spice.ordnerMoeglich) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Ordner freigeben geht mit diesem App-Bau noch nicht (spice-glib ohne WebDAV/phodav).')));
+      return;
+    }
+    if (_fehlt(SpiceKanal.ordner)) return _hinweis(SpiceKanal.ordner);
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, neu) => ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(16, 0, 16, 16), children: [
+          Text('Ordner freigeben', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 8),
+          Text(_ordner == null ? 'Kein Ordner freigegeben.' : 'Freigegeben: $_ordner${_ordnerNurLesen ? ' (nur lesen)' : ''}'),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Nur lesen'),
+            value: _ordnerNurLesen,
+            onChanged: (v) => neu(() => setState(() => _ordnerNurLesen = v)),
+          ),
+          Wrap(spacing: 8, children: [
+            FilledButton.icon(
+              icon: const Icon(Icons.folder_open),
+              label: Text(_ordner == null ? 'Ordner waehlen …' : 'Anderen Ordner …'),
+              onPressed: () async {
+                final pfad = await getDirectoryPath(
+                  confirmButtonText: 'Freigeben',
+                  initialDirectory: Platform.isMacOS ? '/Volumes' : null,
+                );
+                if (pfad == null) return;
+                _spice.ordner(pfad, nurLesen: _ordnerNurLesen);
+                Protokoll.schreiben('Ordner freigeben: $pfad${_ordnerNurLesen ? ' (nur lesen)' : ''}');
+                neu(() => setState(() => _ordner = pfad));
+              },
+            ),
+            if (_ordner != null)
+              OutlinedButton(
+                onPressed: () {
+                  _spice.ordner(null);
+                  Protokoll.schreiben('Ordnerfreigabe beendet');
+                  neu(() => setState(() => _ordner = null));
+                },
+                child: const Text('Freigabe beenden'),
+              ),
+          ]),
+          const SizedBox(height: 12),
+          Text(
+            'So erscheint der Ordner im Computer:\n'
+            '• Linux: im Dateimanager unter „Spice client folder“ (oder Netzwerk → '
+            'dav://localhost:9843/). Braucht das Paket spice-webdavd.\n'
+            '• Windows: als Netzlaufwerk (z. B. Z:) nach dem Start von „Spice webdav proxy“ '
+            '(in den SPICE Guest Tools).\n'
+            'USB-Sticks am Mac: den Stick unter /Volumes waehlen.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ]),
+      ),
     );
   }
 
@@ -339,6 +422,12 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
             )
           else
             IconButton(tooltip: 'USB-Geraete', icon: const Icon(Icons.usb), onPressed: _usbMenue),
+          IconButton(
+            tooltip: _ordner == null ? 'Ordner freigeben' : 'Freigegeben: $_ordner',
+            icon: Icon(_ordner == null ? Icons.folder_shared_outlined : Icons.folder_shared,
+                color: !_spice.ordnerMoeglich || _fehlt(SpiceKanal.ordner) ? Theme.of(context).disabledColor : null),
+            onPressed: _ordnerMenue,
+          ),
           IconButton(tooltip: 'Tastatur', icon: const Icon(Icons.keyboard_alt_outlined), onPressed: _tastaturMenue),
           IconButton(tooltip: 'Strg+Alt+Entf senden', icon: const Icon(Icons.keyboard), onPressed: _strgAltEntf),
         ],
