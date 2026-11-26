@@ -43,7 +43,12 @@ func (g *Gateway) steuerKonto(w http.ResponseWriter, r *http.Request) *Konto {
 		if !errors.Is(err, ErrNichtAngemeldet) {
 			status = http.StatusServiceUnavailable
 		}
-		json200(w, status, map[string]string{"error": "Anmeldung abgelaufen"})
+		text := "Anmeldung abgelaufen"
+		if status != http.StatusUnauthorized {
+			text = "Anmeldung konnte nicht geprueft werden (Authentik nicht erreichbar)"
+		}
+		g.log.Schreiben(Eintrag{Aktion: "anmeldung", Ergebnis: "abgewiesen", Grund: err.Error()})
+		json200(w, status, map[string]string{"error": text})
 		return nil
 	}
 	return k

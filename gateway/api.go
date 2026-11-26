@@ -50,7 +50,12 @@ func (g *Gateway) mitAnmeldung(h func(http.ResponseWriter, *http.Request, anfrag
 			if !errors.Is(err, ErrNichtAngemeldet) {
 				status = http.StatusServiceUnavailable
 			}
-			json200(w, status, map[string]string{"error": "Anmeldung abgelaufen"})
+			text := "Anmeldung abgelaufen"
+			if status != http.StatusUnauthorized {
+				text = "Anmeldung konnte nicht geprueft werden (Authentik nicht erreichbar)"
+			}
+			g.log.Schreiben(Eintrag{Aktion: "anmeldung", Ergebnis: "abgewiesen", Grund: err.Error()})
+			json200(w, status, map[string]string{"error": text})
 			return
 		}
 		if k.Email != peer.Email {
@@ -235,7 +240,7 @@ func (g *Gateway) Schnittstelle() http.Handler {
 			g.log.Schreiben(e)
 			text := "Bildschirm nicht verfuegbar"
 			if strings.Contains(strings.ToLower(err.Error()), "spice") {
-				text = "Fuer diesen Computer ist keine Bildschirmausgabe eingerichtet (SPICE)"
+				text = "Dieser Computer hat keine SPICE-Anzeige – Technik: Anzeige auf SPICE stellen"
 			}
 			json200(w, http.StatusBadGateway, map[string]string{"error": text})
 			return
