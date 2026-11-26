@@ -39,22 +39,16 @@ Nicht im Lauf: der Integrationstest gegen einen SPICE-Testserver. Dafür
 bräuchte es ein Display (Xvfb) und spice-server; das kommt, sobald ein erstes
 Debian-Paket der App entsteht.
 
-## Windows (später, nur Planung)
+## Windows (`.github/workflows/windows.yml`)
 
-Eine Windows-VM als zweiter Runner (Label z. B. `self-hosted, Windows, X64`,
-ebenfalls Gruppe `rosenweg-privat`):
+GitHub-Runner `windows-latest` (kein eigener Windows-Runner nötig; Minuten
+zählen doppelt, darum nur bei Änderungen an `windows/`, `native/`, `lib/`,
+`pubspec.*`, von Hand oder bei Tags). Ablauf: MSYS2 UCRT64 mit spice-gtk,
+Go-Tests des Tunnels, `rwtunnel.dll`/`rwspice.dll`, `flutter test`, `flutter
+build windows`, `windows/installer/bauen.sh` (Bündel, Ladetest ohne MSYS2 im
+PATH, UsbDk mit Prüfsumme, Inno Setup), dann **Rauchtest**: Installer still
+pro Person ausführen, App 20 s laufen lassen, Logdatei prüfen. Artefakt
+`rosenweg-vm-windows` (Installer). Bei Tags: Release und /apps.
 
-| Was | Warum |
-|---|---|
-| Windows 11 oder Server 2022, 4 vCPU, 8 GB RAM, 80 GB | Flutter + Visual Studio + MSYS2 |
-| GitHub Actions Runner als Dienst unter einem eigenen Konto ohne Admin | wie CT 140 |
-| Visual Studio 2022 Build Tools mit „Desktopentwicklung mit C++“ | `flutter build windows` |
-| Flutter 3.47.5 (im Lauf geladen, wie unter Linux) | |
-| MSYS2 mit `mingw-w64-x86_64-spice-gtk`, `mingw-w64-x86_64-gcc`, `mingw-w64-x86_64-go` | spice-glib-DLLs, librwspice/librwtunnel mit mingw |
-| WiX Toolset oder Inno Setup | Installer, der auch UsbDk mitbringt |
-| UsbDk-MSI (Red Hat, Apache-2.0) im Installer, nicht auf dem Runner | USB-Durchreichen braucht den Treiber nur beim Nutzer |
-| Code-Signatur-Zertifikat (optional) | sonst warnt SmartScreen |
-
-Ablauf wie unter Linux: Go-Tests, DLLs bauen, `flutter build windows`,
-DLLs aus MSYS2 neben die .exe kopieren (ein `ldd`-Durchgang listet sie),
-Installer bauen, Artefakt hochladen. Aufwand für Runner und Workflow: etwa 2 PT.
+Signieren nur mit den Secrets `WINDOWS_ZERTIFIKAT_PFX`,
+`WINDOWS_ZERTIFIKAT_PASSWORT` (nicht angelegt).

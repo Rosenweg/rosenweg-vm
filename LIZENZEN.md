@@ -46,6 +46,11 @@ macOS: im App-Bündel unter `Contents/Resources/Lizenzen/` (LICENSE,
 diese Datei, miniaudio, `BIBLIOTHEKEN.txt` mit Name und MacPorts-Version
 jeder mitgelieferten Bibliothek aus `Contents/Frameworks`).
 
+Windows: im Installationsordner unter `Lizenzen/` (LICENSE, diese Datei,
+miniaudio, `BIBLIOTHEKEN.txt` mit MSYS2-Paket und Version jeder DLL; Quelltext
+über die PKGBUILDs auf packages.msys2.org). UsbDk (Apache-2.0) wird nur auf
+Wunsch mitinstalliert, als unverändertes MSI von Daynix.
+
 ## xkeyboard-config (Daten)
 
 `lib/spice/belegungen.g.dart` ist aus den Symboldateien von xkeyboard-config
