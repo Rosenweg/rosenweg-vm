@@ -68,6 +68,17 @@ Job mit Meldung ab. Signatur mit dem Rosenweg-Schlüssel nur mit den Secrets
 `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`,
 `ANDROID_KEY_PASSWORD`; sonst Debug-Signatur.
 
+## iOS (`.github/workflows/ios.yml`)
+
+GitHub-Runner `macos-26` (Minuten zählen zehnfach: nur bei Änderungen an
+`ios/`, `native/`, `lib/native/`, von Hand oder bei Tags). Job **native**:
+meson/ninja/pyparsing in einem venv, glib (Werkzeuge) aus Homebrew,
+`native/spice-stapel/ios.sh`, `native/rwtunnel/bauen.sh ios`,
+`native/rwspice/bauen.sh ios`, Prüfung der Abhängigkeiten (nur System und die
+beiden Frameworks); Artefakt `ios-native`. Job **app** (braucht `BASIS_TOKEN`):
+`flutter build ios --release --no-codesign`, daraus eine **unsignierte** .ipa
+als Artefakt. Nicht an /apps.
+
 ## Zugang zur Basis (alle Flutter-Läufe)
 
 Seit rosenweg-vm `rosenweg_basis` nutzt, holen alle Läufe (Linux, macOS,
