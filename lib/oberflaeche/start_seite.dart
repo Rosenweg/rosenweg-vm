@@ -35,14 +35,24 @@ class StartSeite extends StatelessWidget {
                   PopupMenuItem(enabled: false, child: Text(zustand.konto.name!)),
                 if (zustand.konto.email != null)
                   PopupMenuItem(enabled: false, child: Text(zustand.konto.email!)),
+                const PopupMenuItem(value: 'ueber', child: Text('Über diese App')),
                 const PopupMenuItem(value: 'ab', child: Text('Abmelden')),
               ],
-              onSelected: (_) => zustand.abmelden(),
+              onSelected: (wahl) => wahl == 'ueber' ? _ueber(context) : zustand.abmelden(),
             ),
           ],
         ),
         body: _inhalt(context),
       ),
+    );
+  }
+
+  void _ueber(BuildContext context) {
+    showAboutDialog(
+      context: context,
+      applicationName: 'Rosenweg Virtuelle Computer',
+      applicationIcon: const _Logo(groesse: 64),
+      applicationLegalese: 'Freie Software unter der GPL-3.0-or-later.',
     );
   }
 
@@ -58,6 +68,7 @@ class StartSeite extends StatelessWidget {
             text: 'Die Anmeldeseite wurde im Browser geoeffnet.\nNach der Anmeldung geht es hier weiter.');
       case Phase.kontoNoetig:
         return _Hinweis(
+          logo: true,
           text: 'Bitte mit dem Rosenweg-Konto anmelden.\nDie App merkt sich die Anmeldung 30 Tage.',
           knopf: 'Mit Rosenweg-Konto anmelden',
           aktion: zustand.anmelden,
@@ -149,9 +160,10 @@ class _LageAnzeige extends StatelessWidget {
 }
 
 class _Hinweis extends StatelessWidget {
-  const _Hinweis({required this.text, this.warten = false, this.knopf, this.aktion});
+  const _Hinweis({required this.text, this.warten = false, this.logo = false, this.knopf, this.aktion});
   final String text;
   final bool warten;
+  final bool logo;
   final String? knopf;
   final VoidCallback? aktion;
 
@@ -161,6 +173,7 @@ class _Hinweis extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(32),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
+          if (logo) const Padding(padding: EdgeInsets.only(bottom: 24), child: _Logo(groesse: 128)),
           if (warten) const Padding(padding: EdgeInsets.only(bottom: 24), child: CircularProgressIndicator()),
           Text(text, textAlign: TextAlign.center, style: Theme.of(context).textTheme.titleMedium),
           if (knopf != null)
@@ -172,4 +185,19 @@ class _Hinweis extends StatelessWidget {
       ),
     );
   }
+}
+
+/// App-Logo (Turm, Weg, Rose mit Monitor-Plakette), assets/logo/erzeugen.sh.
+class _Logo extends StatelessWidget {
+  const _Logo({required this.groesse});
+  final double groesse;
+
+  @override
+  Widget build(BuildContext context) => Image.asset(
+        'assets/logo/rosenweg-vm-512.png',
+        width: groesse,
+        height: groesse,
+        filterQuality: FilterQuality.medium,
+        semanticLabel: 'Rosenweg Virtuelle Computer',
+      );
 }

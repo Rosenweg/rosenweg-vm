@@ -164,12 +164,15 @@ install -D -m 0755 "$HIER/rosenweg-vm" "$BAUM/usr/bin/rosenweg-vm"
 install -D -m 0644 "$HIER/ch.rosenweg4303.vm.desktop" \
     "$BAUM/usr/share/applications/ch.rosenweg4303.vm.desktop"
 
-# Symbole: dieselbe Regel wie assets/logo/erzeugen.sh — bis 108 px die
-# vereinfachte Fassung (*-klein.svg), darüber der Wappen-Turm. Aus dem SVG
-# gerechnet statt eingecheckt: für Linux gibt es sonst keinen Abnehmer.
+# Symbole: dieselbe Regel wie assets/logo/erzeugen.sh — bis 40 px
+# *-winzig.svg (Turm und Rose), bis 108 px *-klein.svg, darüber die volle
+# Fassung (Turm, Weg, Rose). Aus dem SVG gerechnet statt eingecheckt: für
+# Linux gibt es sonst keinen Abnehmer.
 L="$WURZEL/assets/logo"
 for s in 16 22 24 32 48 64 96 128 256 512; do
-    q="$L/rosenweg-vm.svg"; [ "$s" -le 108 ] && q="$L/rosenweg-vm-klein.svg"
+    if [ "$s" -le 40 ]; then q="$L/rosenweg-vm-winzig.svg"
+    elif [ "$s" -le 108 ]; then q="$L/rosenweg-vm-klein.svg"
+    else q="$L/rosenweg-vm.svg"; fi
     d="$BAUM/usr/share/icons/hicolor/${s}x${s}/apps"
     mkdir -p "$d"
     rsvg-convert -w "$s" -h "$s" "$q" -o "$d/rosenweg-vm.png"

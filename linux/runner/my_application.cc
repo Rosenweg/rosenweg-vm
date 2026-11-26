@@ -19,7 +19,7 @@ static void first_frame_cb(MyApplication* self, FlView* view) {
   gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
 }
 
-// App-Symbol (Logo A2, assets/logo/). Zuerst aus dem Symbol-Thema: das .deb
+// App-Symbol (Turm, Weg, Rose; assets/logo/). Zuerst aus dem Symbol-Thema: das .deb
 // legt rosenweg-vm in hicolor ab, dann waehlt GTK die passende Groesse fuer
 // Leiste und Alt-Tab. Ohne Paket (Bau von Hand, tar.gz) liegt das Symbol nur
 // im Buendel unter data/ — sonst zeigte das Fenster das leere Standardsymbol.
