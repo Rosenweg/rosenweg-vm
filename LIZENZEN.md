@@ -42,6 +42,10 @@ Angebot, den Quelltext der ausgelieferten Version zu liefern, oder gleich der
 Verweis auf den Quelltext (Debian-Quellpaket, MSYS2-PKGBUILD, eigener Bau mit
 Tag).
 
+macOS: im App-Bündel unter `Contents/Resources/Lizenzen/` (LICENSE,
+diese Datei, miniaudio, `BIBLIOTHEKEN.txt` mit Name und MacPorts-Version
+jeder mitgelieferten Bibliothek aus `Contents/Frameworks`).
+
 ## xkeyboard-config (Daten)
 
 `lib/spice/belegungen.g.dart` ist aus den Symboldateien von xkeyboard-config

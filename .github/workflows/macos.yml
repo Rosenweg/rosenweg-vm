@@ -1,0 +1,115 @@
+# macOS-Installer (DMG) auf einem von GitHub gehosteten macOS-Runner.
+#
+# Nur von Hand oder bei einem Tag v*: macOS-Minuten zaehlen bei privaten
+# Repos zehnfach. Der Lauf installiert MacPorts mit spice-gtk (Binaerpakete,
+# ca. 15-30 min), baut Go-/C-Bibliotheken und die App und ruft
+# macos/installer/bauen.sh auf (siehe docs/plattformen.md).
+#
+# Signieren/Notarisieren nur, wenn die Secrets gesetzt sind (sonst ad hoc):
+#   MACOS_ZERTIFIKAT_P12       base64 eines .p12 mit "Developer ID Application"
+#   MACOS_ZERTIFIKAT_PASSWORT  Passwort des .p12
+#   NOTAR_KEY_P8               base64 des App-Store-Connect-API-Schluessels (.p8)
+#   NOTAR_KEY_ID, NOTAR_ISSUER Key-ID und Issuer-ID dazu
+name: macOS
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write  # Release bei Tags
+
+env:
+  GO_VERSION: "1.27.4"
+  FLUTTER_VERSION: "3.47.5"
+
+jobs:
+  dmg:
+    runs-on: macos-26
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+
+      - name: MacPorts mit spice-gtk
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          haupt="$(sw_vers -productVersion | cut -d. -f1)"
+          pkg="$(gh api repos/macports/macports-base/releases/latest \
+                   --jq ".assets[].name | select(test(\"-${haupt}-[A-Za-z]+\\\\.pkg$\"))" | head -n1)"
+          tag="$(gh api repos/macports/macports-base/releases/latest --jq .tag_name)"
+          [ -n "$pkg" ] || { echo "kein MacPorts-Paket fuer macOS $haupt"; exit 1; }
+          curl -fsSL -o /tmp/macports.pkg "https://github.com/macports/macports-base/releases/download/$tag/$pkg"
+          sudo installer -pkg /tmp/macports.pkg -target /
+          echo "/opt/local/bin" >> "$GITHUB_PATH"
+          sudo /opt/local/bin/port -N selfupdate
+          sudo /opt/local/bin/port -N install spice-gtk libusb pkgconfig
+
+      - name: Signierzertifikat (falls Secret gesetzt)
+        env:
+          P12: ${{ secrets.MACOS_ZERTIFIKAT_P12 }}
+          P12_PW: ${{ secrets.MACOS_ZERTIFIKAT_PASSWORT }}
+          NOTAR_KEY_P8: ${{ secrets.NOTAR_KEY_P8 }}
+        run: |
+          set -euo pipefail
+          if [ -n "$P12" ]; then
+            KC="$RUNNER_TEMP/signieren.keychain-db"; KC_PW="$(uuidgen)"
+            security create-keychain -p "$KC_PW" "$KC"
+            security set-keychain-settings -lut 3600 "$KC"
+            security unlock-keychain -p "$KC_PW" "$KC"
+            echo "$P12" | base64 --decode > "$RUNNER_TEMP/z.p12"
+            security import "$RUNNER_TEMP/z.p12" -k "$KC" -P "$P12_PW" -T /usr/bin/codesign
+            rm "$RUNNER_TEMP/z.p12"
+            security set-key-partition-list -S apple-tool:,apple: -k "$KC_PW" "$KC" >/dev/null
+            security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+          fi
+          if [ -n "$NOTAR_KEY_P8" ]; then
+            echo "$NOTAR_KEY_P8" | base64 --decode > "$RUNNER_TEMP/notar.p8"
+            echo "RW_NOTAR_KEY=$RUNNER_TEMP/notar.p8" >> "$GITHUB_ENV"
+          fi
+
+      - name: Bauen (App + DMG)
+        env:
+          RW_NOTAR_KEY_ID: ${{ secrets.NOTAR_KEY_ID }}
+          RW_NOTAR_ISSUER: ${{ secrets.NOTAR_ISSUER }}
+        run: |
+          flutter config --no-analytics >/dev/null
+          flutter pub get
+          macos/installer/bauen.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rosenweg-vm-macos
+          path: build/macos-installer/*.dmg
+          retention-days: 14
+
+      - name: Release (nur bei Tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes "macOS-Installer"
+          gh release upload "$GITHUB_REF_NAME" build/macos-installer/*.dmg --clobber
+
+      - name: Aufraeumen
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/notar.p8"
+          security delete-keychain "$RUNNER_TEMP/signieren.keychain-db" 2>/dev/null || true

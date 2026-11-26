@@ -13,7 +13,7 @@ Stand 25.11.2026. Aufwand grob in Personentagen (PT), ohne Store-Verfahren.
 | USB | ja (Rechte nötig) | ja (UsbDk-Treiber) | eingeschränkt | ja (Android-USB-Host) | **nein** |
 | Anmeldung (einmal, 30 Tage) | localhost | localhost | localhost | eigenes Schema | eigenes Schema |
 | DNS-Server für „im Haus“ | resolv.conf | PowerShell/ipconfig | resolv.conf/scutil | LinkProperties (Kanal) | offen (libresolv) |
-| Stand | **.deb gebaut** (CT 141, 26.11.2026), Start unter Xvfb bis zur Anmeldung | nicht gebaut | **läuft** | Tunnel baut | Tunnel baut |
+| Stand | **.deb gebaut** (CT 141, 26.11.2026), Start unter Xvfb bis zur Anmeldung | nicht gebaut | **DMG gebaut** (arm64, ab macOS 26, ad hoc) | Tunnel baut | Tunnel baut |
 
 ## Linux (zuerst, Stationen; Debian 13)
 
@@ -70,10 +70,73 @@ Stand 25.11.2026. Aufwand grob in Personentagen (PT), ohne Store-Verfahren.
 
 - **Entwicklung (läuft):** spice-glib aus MacPorts (`/opt/local`), Debug-Bau
   ohne Sandbox, `--dart-define=RW_NATIVE_DIR=…/native`.
-- **Auslieferung:** Bibliotheken nach `Contents/Frameworks` bündeln
-  (Installationsnamen auf `@rpath` umschreiben, jede signieren), Sandbox an
-  (`Release.entitlements`: network.client/server, audio-input, usb),
-  notarisieren. Eigener Bau des Stapels statt MacPorts, siehe iOS (UTM).
+- **Auslieferung (DMG, gebaut 26.11.2026):** `macos/installer/bauen.sh`
+  baut beide nativen Bibliotheken, `flutter build macos --release`, kopiert
+  librwtunnel, librwspice und alle davon gebrauchten dylibs aus MacPorts
+  (27 Stück: spice-glib, GLib, GStreamer-Kern, OpenSSL, usbredir, libusb, …)
+  nach `Contents/Frameworks`, schreibt alle Pfade auf `@rpath/<name>` um
+  (jede Bibliothek mit rpath `@loader_path`), prüft, dass nichts mehr nach
+  `/opt/local`, `/opt/homebrew` oder `/usr/local` zeigt, signiert von innen
+  nach aussen und macht mit `dmgbuild` das DMG (Hintergrund
+  `macos/installer/hintergrund.svg` → PNG 1x/2x, Programme-Verknüpfung,
+  Volume-Symbol = App-Symbol, Layout in `dmg-einstellungen.py`). Ergebnis:
+  `build/macos-installer/Rosenweg-Virtuelle-Computer-<version>.dmg`.
+  Die App findet die Bibliotheken über `Contents/Frameworks`
+  (`lib/native/bibliothek.dart`), `RW_NATIVE_DIR` braucht es nicht.
+  Optionen: `--ohne-native`, `--ohne-flutter`, `--ohne-dmg`.
+- **Sandbox:** der ausgelieferte Bau läuft mit `Release.entitlements`
+  (Sandbox, network.client/server, audio-input, usb, user-selected
+  read-write). Getestet: Anmeldung aus dem Schlüsselbund, Tunnel, „im
+  Haus“-Erkennung, SPICE-Bild. Protokoll liegt dann unter
+  `~/Library/Containers/ch.rosenweg4303.vm/Data/Library/Logs/Rosenweg Virtuelle Computer/app.log`.
+- **GStreamer:** spice-glib aus MacPorts ist dagegen gelinkt, darum liegen
+  die Kernbibliotheken bei. Plugins nicht: Ton macht rwspice selbst
+  (miniaudio/CoreAudio), Bild-Streams dekodiert spice-glib ohne Plugins
+  (MJPEG) und bietet dem Server nur das an. rwspice biegt im Bündel die
+  Suchpfade von GStreamer und GIO auf `Contents/PlugIns/…` um (leer), damit
+  auf einem Mac mit MacPorts keine fremden Module geladen werden
+  (`buendel_pfade` in `rwspice.c`).
+- **Architektur: nur arm64, ab macOS 26.** MacPorts baut den Stapel nur für
+  die eigene Architektur und für das eigene System (minos 26.0). Ein
+  Universal-Bau bräuchte `+universal` für den ganzen Stapel (glib,
+  gstreamer, openssl, spice-gtk …, Stunden Bauzeit, alles neu); librwtunnel
+  wäre schon universal. Das Skript prüft das selbst: bringen alle
+  Bibliotheken x86_64 mit, bleibt die App universal, sonst wird alles auf
+  arm64 verdünnt. `LSMinimumSystemVersion` setzt es auf die höchste
+  Mindestversion der Bibliotheken, damit ältere Macs eine klare Meldung
+  bekommen statt eines Absturzes. Für ältere macOS-Versionen: den Stapel
+  selbst bauen (siehe iOS/UTM) oder auf einem Mac mit älterem System bauen.
+- **Signieren:** `RW_SIGNIER_ID` oder automatisch die erste „Developer ID
+  Application“ im Schlüsselbund, dann mit Hardened Runtime und Zeitstempel;
+  ohne Zertifikat ad hoc. Notarisieren, wenn ein notarytool-Profil da ist
+  (`xcrun notarytool store-credentials rosenweg-notar …`, Name über
+  `RW_NOTAR_PROFIL`) oder ein API-Schlüssel (`RW_NOTAR_KEY`,
+  `RW_NOTAR_KEY_ID`, `RW_NOTAR_ISSUER`); danach `stapler staple` aufs DMG.
+  Stand 26.11.2026: auf dem Entwicklungs-Mac liegt nur ein „Apple
+  Development“-Zertifikat (darf nicht verteilen) → ad hoc. Für eine
+  Verteilung ohne Gatekeeper-Warnung braucht es das Apple Developer Program
+  (99 USD/Jahr), daraus ein „Developer ID Application“-Zertifikat und für
+  notarytool ein App-spezifisches Passwort oder einen App-Store-Connect-API-
+  Schlüssel. Danach genügt ein erneuter Lauf von `bauen.sh`.
+- **Ad-hoc-signierte App öffnen:** aus dem Internet geladen (Quarantäne)
+  meldet macOS „kann nicht überprüft werden“. Einmal Rechtsklick → Öffnen →
+  Öffnen; ab macOS 15 stattdessen Systemeinstellungen → Datenschutz &
+  Sicherheit → „Dennoch öffnen“. Oder im Terminal
+  `xattr -dr com.apple.quarantine "/Applications/Rosenweg Virtuelle Computer.app"`.
+  Ausserdem fragt der Schlüsselbund nach jedem neuen Bau einmal nach dem
+  Zugriff auf den Eintrag `flutter_secure_storage_service` (Signatur ohne
+  Team-ID ändert sich mit jedem Bau): „Immer erlauben“. Mit Developer ID
+  entfällt beides.
+- **Ersetzen einer älteren Fassung:** gleiche Bundle-ID
+  (`ch.rosenweg4303.vm`) und gleicher Name; Anmeldung und Geräte-Kennung
+  liegen im Anmelde-Schlüsselbund und bleiben. App beenden, neue Fassung
+  nach `/Applications` ziehen („Ersetzen“). Liegt sie im Dock, nach dem
+  Ersetzen `killall Dock`, damit das neue Symbol erscheint.
+- **CI:** `.github/workflows/macos.yml` (von Hand oder bei Tag `v*`, GitHub-
+  Runner `macos-26`): MacPorts + spice-gtk, dann `bauen.sh`; DMG als
+  Artefakt, bei Tags als Release. Signieren/Notarisieren nur mit den
+  Secrets `MACOS_ZERTIFIKAT_P12`, `MACOS_ZERTIFIKAT_PASSWORT`,
+  `NOTAR_KEY_P8`, `NOTAR_KEY_ID`, `NOTAR_ISSUER` (nicht angelegt).
 - **USB:** libusb kann unter macOS Geräte, die ein Systemtreiber hält
   (Tastatur, Maus, USB-Stick), nicht übernehmen — dafür bräuchte es root oder
   die Apple-Berechtigung `com.apple.vm.device-access` (nur auf Antrag).
@@ -85,7 +148,8 @@ Stand 25.11.2026. Aufwand grob in Personentagen (PT), ohne Store-Verfahren.
   ohne das Gerät zu öffnen: Interface-Klasse Massenspeicher, HID, Audio,
   CDC/Daten, Video, Hub, Funk. Sie stehen grau im USB-Menü mit dem Hinweis
   auf „Ordner freigeben“. Unter Windows und Linux bleibt alles wie gehabt.
-- **Aufwand:** 3–5 PT (Bündeln, Signieren, Notarisieren).
+- **Offen:** Developer ID + Notarisierung; eigener Stapel mit phodav
+  (Ordner freigeben) und für ältere macOS/Intel.
 
 ## Android
 

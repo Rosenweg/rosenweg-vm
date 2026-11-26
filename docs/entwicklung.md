@@ -21,6 +21,10 @@ flutter run -d macos --dart-define=RW_NATIVE_DIR=$PWD/native
 
 Weitere Ziele: `native/rwtunnel/bauen.sh android|ios|linux|windows`.
 
+Ausgelieferte App und Installer (DMG, ohne `RW_NATIVE_DIR`):
+`macos/installer/bauen.sh` → `build/macos-installer/`; Einzelheiten in
+`docs/plattformen.md` (macOS).
+
 ## Tastaturbelegungen der Gaeste
 
 `lib/spice/belegungen.g.dart` wird aus xkeyboard-config erzeugt (MacPorts:

@@ -178,9 +178,41 @@ static gpointer schleife_laufen(gpointer _) {
 
 int32_t rw_spice_abi(void) { return RW_SPICE_ABI; }
 
+#ifdef __APPLE__
+/* Ausgelieferte App (macOS): spice-glib, GLib und GStreamer liegen als Kopie
+ * in Contents/Frameworks. Ihre eingebauten Suchpfade zeigen aber noch auf den
+ * Bau-Rechner (/opt/local/lib/gstreamer-1.0, /opt/local/lib/gio/modules).
+ * Auf einem Mac mit MacPorts wuerden sonst fremde Module in den Prozess
+ * geladen (falsche Version, mit Sandbox ohnehin verboten). Darum hier auf
+ * Contents/PlugIns/{gstreamer-1.0,gio-modules} im Buendel umbiegen (gibt es
+ * derzeit nicht = keine Module; Code gehoert dort hin, nicht in Resources). GStreamer-Plugins braucht rwspice nicht: Ton
+ * macht miniaudio, Bild-Streams dekodiert spice-glib selbst (MJPEG); ohne
+ * Plugins bietet spice-glib dem Server nur das an. Kein Hilfsprozess fuer den
+ * Plugin-Scan (GST_REGISTRY_FORK=no). Im Entwicklungsbau (Bibliothek ausserhalb
+ * eines .app) bleibt alles, wie es ist. */
+static void buendel_pfade(void) {
+    Dl_info info;
+    if (!dladdr((const void *)buendel_pfade, &info) || !info.dli_fname) return;
+    const char *f = info.dli_fname;
+    const char *teil = strstr(f, ".app/Contents/Frameworks/");
+    if (!teil) return;
+    gchar *fw = g_strndup(f, (gsize)(teil - f) + strlen(".app/Contents"));
+    gchar *gst = g_build_filename(fw, "PlugIns", "gstreamer-1.0", NULL);
+    gchar *gio = g_build_filename(fw, "PlugIns", "gio-modules", NULL);
+    g_setenv("GST_PLUGIN_SYSTEM_PATH_1_0", gst, FALSE);
+    g_setenv("GST_PLUGIN_PATH_1_0", gst, FALSE);
+    g_setenv("GST_REGISTRY_FORK", "no", FALSE);
+    g_setenv("GIO_MODULE_DIR", gio, FALSE);
+    g_free(gst); g_free(gio); g_free(fw);
+}
+#endif
+
 void rw_spice_start(int32_t eigene_schleife, rw_spice_ereignis_fn cb) {
     ereignis_cb = cb;
     if (kontext) return;
+#ifdef __APPLE__
+    buendel_pfade();
+#endif
     /* spice-glib haengt seine Quellen an den Standardkontext. Darum genau den
      * drehen — im eigenen Thread, oder (Linux) gar nicht, weil GTK es tut. */
     kontext = g_main_context_default();
