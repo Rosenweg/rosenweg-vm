@@ -37,7 +37,35 @@ class Schluesselbund {
   Map<String, String>? _werte;
   Future<Map<String, String>>? _laden;
 
-  Future<Map<String, String>> _alle() => _laden ??= _ladenUndUebernehmen();
+  /// true, sobald der Schluesselbund des Systems versagt hat. Dann lebt alles
+  /// nur noch im Speicher der App, bis sie endet.
+  ///
+  /// Linux: libsecret braucht einen Secret-Service-Dienst (gnome-keyring,
+  /// KeePassXC) in der Sitzung. Auf den Rosenweg-Stationen laeuft keiner
+  /// (desktop-test, 26.11.2026). Ohne diesen Rueckfall scheiterte dort schon
+  /// das erste Lesen — und mit ihm Anmeldung und Geraete-Kennung. So geht es
+  /// weiter, nur ohne Erinnerung ueber das Programmende hinaus; die stille
+  /// Anmeldung ueber die Browser-Sitzung (30 Tage) bleibt davon unberuehrt.
+  bool get nurImSpeicher => _nurImSpeicher;
+  bool _nurImSpeicher = false;
+
+  void _versagt(Object e) {
+    if (!_nurImSpeicher) {
+      Protokoll.schreiben('Schluesselbund des Systems nicht nutzbar, Werte nur bis Programmende', e);
+    }
+    _nurImSpeicher = true;
+  }
+
+  Future<Map<String, String>> _alle() => _laden ??= _ladenOderLeer();
+
+  Future<Map<String, String>> _ladenOderLeer() async {
+    try {
+      return await _ladenUndUebernehmen();
+    } catch (e) {
+      _versagt(e);
+      return _werte ??= <String, String>{};
+    }
+  }
 
   Future<Map<String, String>> _ladenUndUebernehmen() async {
     final roh = await _speicher.read(key: eintrag);
@@ -71,11 +99,16 @@ class Schluesselbund {
   }
 
   Future<void> _schreiben() async {
+    if (_nurImSpeicher) return;
     final w = _werte ?? const {};
-    if (w.isEmpty) {
-      await _speicher.delete(key: eintrag);
-    } else {
-      await _speicher.write(key: eintrag, value: jsonEncode(w));
+    try {
+      if (w.isEmpty) {
+        await _speicher.delete(key: eintrag);
+      } else {
+        await _speicher.write(key: eintrag, value: jsonEncode(w));
+      }
+    } catch (e) {
+      _versagt(e);
     }
   }
 

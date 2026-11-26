@@ -13,7 +13,7 @@ Stand 25.11.2026. Aufwand grob in Personentagen (PT), ohne Store-Verfahren.
 | USB | ja (Rechte nötig) | ja (UsbDk-Treiber) | eingeschränkt | ja (Android-USB-Host) | **nein** |
 | Anmeldung (einmal, 30 Tage) | localhost | localhost | localhost | eigenes Schema | eigenes Schema |
 | DNS-Server für „im Haus“ | resolv.conf | PowerShell/ipconfig | resolv.conf/scutil | LinkProperties (Kanal) | offen (libresolv) |
-| Stand | nicht gebaut (kein Linux hier) | nicht gebaut | **läuft** | Tunnel baut | Tunnel baut |
+| Stand | **.deb gebaut** (CT 141, 26.11.2026), Start unter Xvfb bis zur Anmeldung | nicht gebaut | **läuft** | Tunnel baut | Tunnel baut |
 
 ## Linux (zuerst, Stationen; Debian 13)
 
@@ -28,10 +28,28 @@ Stand 25.11.2026. Aufwand grob in Personentagen (PT), ohne Store-Verfahren.
   angemeldeten Sitzung (`uaccess`) die Geräte gibt. Auf Stationen: Regel.
 - **Tunnel:** auch im Haus, dann zum LAN-Endpunkt des Gateways (kein
   Umweg ins Internet); ohne Rechte, im Prozess.
-- **Einbindung:** `linux/CMakeLists.txt` um `install(FILES librwspice.so
-  librwtunnel.so DESTINATION lib)` ergänzen; Auslieferung als .deb mit
-  `Depends: libspice-client-glib-2.0-8`. Rolle `desktop` ersetzt dann
-  `85-vm-konsolen.sh`.
+- **Einbindung:** `linux/CMakeLists.txt` legt `librwspice.so` und
+  `librwtunnel.so` nach `lib/` im Bündel.
+- **Debian-Paket `rosenweg-vm`** (`linux/paket/bauen.sh`, im Bau-Container
+  `linux/paket/im-container.sh`): Bündel unter `/opt/rosenweg-vm`, Start
+  `/usr/bin/rosenweg-vm`, Starter `ch.rosenweg4303.vm.desktop` (= GTK-
+  Anwendungskennung, damit Leiste und Fenster zusammenfinden), Symbol
+  `rosenweg-vm` in hicolor 16–512 px und als SVG. `Depends` rechnet
+  `dpkg-shlibdeps` aus (u. a. `libspice-client-glib-2.0-8`, `libgtk-3-0t64`,
+  `libsecret-1-0`); nichts davon liegt im Paket (LGPL, Updates über apt).
+  Version aus `pubspec.yaml`: `1.0.0+1` → `1.0.0-1`. Für ein neues Paket die
+  Baunummer anheben. Gebaut wird nur auf Debian 13/amd64, sonst stimmen die
+  Paketnamen (t64) nicht. Das Paket ist lintian-sauber; was zur Art des
+  Pakets gehört (/opt, Flutter-Engine), steht begründet in den Overrides.
+- **Stationen:** os-stationen holt das .deb mit Prüfsumme vom PXE-Server
+  (`pakete/rosenweg-vm/`) und ersetzt damit das Programm „Maschinen“
+  (`roles/desktop/parts/85-vm-konsolen.sh`). Die udev-Regel für USB setzt die
+  Rolle, nicht das Paket.
+- **Schlüsselbund:** `flutter_secure_storage` braucht unter Linux einen
+  Secret-Service-Dienst (gnome-keyring, KeePassXC). Die Stationen haben keinen.
+  Fehlt er, behält die App ihre Werte nur bis Programmende. Die stille
+  Anmeldung über die Browser-Sitzung (30 Tage) geht trotzdem, nur die
+  Geräte-Kennung ist bei jedem Start neu.
 - **Aufwand:** 3–5 PT (Bau auf Debian, Paket, Texture, udev, Test mit echter VM).
 
 ## Windows
