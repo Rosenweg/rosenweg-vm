@@ -22,6 +22,9 @@ import "C"
 
 import (
 	"encoding/json"
+	"fmt"
+	"os"
+	"runtime/debug"
 	"sync"
 	"unsafe"
 
@@ -43,8 +46,40 @@ func antwort(v any) *C.char {
 
 func fehler(err error) *C.char { return antwort(map[string]string{"fehler": err.Error()}) }
 
+// auffangen macht aus einem panic in einer exportierten Funktion eine
+// Fehlerantwort. Ohne das beendet die Go-Laufzeit den ganzen Prozess (App-
+// Fenster weg, kein Absturzbericht von macOS). Gilt nur fuer den Aufruf
+// selbst; panics in Hintergrund-Goroutinen landen in der Absturzdatei
+// (rwt_absturzdatei). Ein "defer mu.Unlock()" der Funktion laeuft vorher.
+func auffangen(aus **C.char) {
+	if r := recover(); r != nil {
+		if aus != nil {
+			*aus = fehler(fmt.Errorf("interner Fehler im Tunnel: %v", r))
+		}
+	}
+}
+
+// rwt_absturzdatei: wohin die Go-Laufzeit bei einem nicht aufgefangenen
+// panic/fatal error ihre Ausgabe zusaetzlich schreibt (Logdatei der App).
+//
+//export rwt_absturzdatei
+func rwt_absturzdatei(pfad *C.char) (aus *C.char) {
+	defer auffangen(&aus)
+	f, err := os.OpenFile(C.GoString(pfad), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
+	if err != nil {
+		return fehler(err)
+	}
+	if err := debug.SetCrashOutput(f, debug.CrashOptions{}); err != nil {
+		f.Close()
+		return fehler(err)
+	}
+	f.Close() // SetCrashOutput haelt eine eigene Kopie
+	return antwort(map[string]bool{"ok": true})
+}
+
 //export rwt_schluesselpaar
-func rwt_schluesselpaar() *C.char {
+func rwt_schluesselpaar() (aus *C.char) {
+	defer auffangen(&aus)
 	priv, pub, err := tunnel.Schluesselpaar()
 	if err != nil {
 		return fehler(err)
@@ -57,7 +92,8 @@ func rwt_schluesselpaar() *C.char {
 // waere ein offenes Loch ins Hausnetz.
 //
 //export rwt_start
-func rwt_start(konfigJSON *C.char) *C.char {
+func rwt_start(konfigJSON *C.char) (aus *C.char) {
+	defer auffangen(&aus)
 	var k tunnel.Konfig
 	if err := json.Unmarshal([]byte(C.GoString(konfigJSON)), &k); err != nil {
 		return fehler(err)
@@ -77,7 +113,8 @@ func rwt_start(konfigJSON *C.char) *C.char {
 }
 
 //export rwt_zustand
-func rwt_zustand() *C.char {
+func rwt_zustand() (aus *C.char) {
+	defer auffangen(&aus)
 	mu.Lock()
 	defer mu.Unlock()
 	if aktiv == nil {
@@ -93,7 +130,8 @@ func rwt_zustand() *C.char {
 // rwt_weiterleitung oeffnet einen lokalen Port zu einem freigegebenen Ziel.
 //
 //export rwt_weiterleitung
-func rwt_weiterleitung(ziel *C.char) *C.char {
+func rwt_weiterleitung(ziel *C.char) (aus *C.char) {
+	defer auffangen(&aus)
 	mu.Lock()
 	defer mu.Unlock()
 	if aktiv == nil {
@@ -109,7 +147,8 @@ func rwt_weiterleitung(ziel *C.char) *C.char {
 // rwt_endpunkt wechselt den Endpunkt im laufenden Tunnel (Roaming).
 //
 //export rwt_endpunkt
-func rwt_endpunkt(ep *C.char) *C.char {
+func rwt_endpunkt(ep *C.char) (aus *C.char) {
+	defer auffangen(&aus)
 	mu.Lock()
 	defer mu.Unlock()
 	if aktiv == nil {
@@ -123,6 +162,7 @@ func rwt_endpunkt(ep *C.char) *C.char {
 
 //export rwt_stop
 func rwt_stop() {
+	defer auffangen(nil)
 	mu.Lock()
 	defer mu.Unlock()
 	if aktiv != nil {
