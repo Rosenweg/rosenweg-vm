@@ -86,7 +86,7 @@ ios)
     "$CC" -arch arm64 -isysroot "$SDK" "-miphoneos-version-min=$IOS_MIN" \
         -O2 -fPIC -dynamiclib -fvisibility=hidden "${WARN[@]}" -x objective-c \
         $("$PKGCFG" --cflags spice-client-glib-2.0) \
-        "${QUELLEN[@]}" -x none \
+        "${QUELLEN[@]}" \
         -Wl,-force_load,"$tunnel" \
         -F"$NATIV" -framework SpiceGlib \
         -framework Foundation -framework CoreFoundation -framework Security \

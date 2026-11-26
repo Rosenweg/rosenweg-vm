@@ -56,30 +56,42 @@ auspacken() { mkdir -p "$ARBEIT/quelle"; tar -xf "$QUELLEN/$1" -C "$ARBEIT/quell
 schritt "GStreamer $GST_VERSION (Binaerpaket iOS)"
 GST_DATEI="gstreamer-1.0-devel-$GST_VERSION-ios-universal.pkg"
 holen "$GST_DATEI" "https://gstreamer.freedesktop.org/data/pkg/ios/$GST_VERSION/$GST_DATEI" "$GST_IOS_SHA256"
+# Das iOS-Paket enthaelt GStreamer.framework mit EINER zusammengefuegten
+# statischen Bibliothek (alle Teile, arm64 + x86_64-Simulator) und flachen
+# Kopfdateien, aber keine .pc-Dateien. Darum: arm64 herausloesen und fuer die
+# Module, die spice-glib verlangt, eigene .pc-Dateien schreiben (nur Cflags;
+# gelinkt wird einmal am Ende gegen libgstreamer-ios.a).
 if [ ! -f "$GST/.fertig" ]; then
     rm -rf "$ARBEIT/gst-pkg" "$GST"
     pkgutil --expand-full "$QUELLEN/$GST_DATEI" "$ARBEIT/gst-pkg"
-    # Die Teilpakete legen ihre Dateien unter .../Payload ab; das Framework
-    # mit lib/pkgconfig suchen.
-    pc="$(find "$ARBEIT/gst-pkg" -path '*/lib/pkgconfig/glib-2.0.pc' | head -n1)"
-    [ -n "$pc" ] || { echo "glib-2.0.pc nicht im GStreamer-Paket:"; find "$ARBEIT/gst-pkg" -maxdepth 6 | head -50; exit 1; }
-    wurzel="$(dirname "$(dirname "$(dirname "$pc")")")"
-    echo "GStreamer-Wurzel im Paket: ${wurzel#"$ARBEIT/gst-pkg/"}"
-    # Alle Teilpakete zusammenfuehren (Kopfdateien/Bibliotheken koennen in
-    # verschiedenen Payloads liegen)
-    mkdir -p "$GST"
-    rel="${wurzel#"$ARBEIT/gst-pkg/"}"; rel="${rel#*/Payload}"
-    for p in "$ARBEIT"/gst-pkg/*/Payload; do
-        [ -d "$p$rel" ] && ditto "$p$rel" "$GST"
-    done
-    for pc in "$GST"/lib/pkgconfig/*.pc; do
-        sed -i '' -e "s|^prefix=.*|prefix=$GST|" "$pc"
-    done
+    fw="$(find "$ARBEIT/gst-pkg" -type d -name GStreamer.framework -path '*/Payload/*' | head -n1)"
+    [ -n "$fw" ] || { echo "GStreamer.framework nicht im Paket" >&2; exit 1; }
+    mkdir -p "$GST/lib"
+    mv "$fw/Versions/1.0/Headers" "$GST/include"
+    lipo -thin arm64 "$fw/Versions/1.0/GStreamer" -output "$GST/lib/libgstreamer-ios.a"
     rm -rf "$ARBEIT/gst-pkg"
     touch "$GST/.fertig"
 fi
-echo "GStreamer-Paket: $(ls "$GST"/lib/pkgconfig | wc -l | tr -d ' ') pkg-config-Eintraege"
-lipo -info "$GST/lib/libglib-2.0.a" || true
+# .pc-Dateien (jedes Mal neu, billig)
+mkdir -p "$GST/lib/pkgconfig"
+I="$GST/include"
+zahl() { sed -n "s/^#[[:space:]]*define $2[[:space:]]*\"\{0,1\}\([0-9.]*\)\"\{0,1\}.*/\1/p" "$I/$1" | head -n1; }
+# glibconfig.h liegt je Architektur unter include/<arch>/
+glib="$(zahl arm64/glibconfig.h GLIB_MAJOR_VERSION).$(zahl arm64/glibconfig.h GLIB_MINOR_VERSION).$(zahl arm64/glibconfig.h GLIB_MICRO_VERSION)"
+pc() { # pc <name> <version>
+    printf 'Name: %s\nDescription: aus GStreamer.framework (iOS) %s\nVersion: %s\nCflags: -I%s\nLibs:\n' \
+        "$1" "$GST_VERSION" "$2" "$I" > "$GST/lib/pkgconfig/$1.pc"
+}
+for m in glib-2.0 gobject-2.0 gio-2.0 gio-unix-2.0 gmodule-2.0 gthread-2.0; do pc "$m" "$glib"; done
+for m in gstreamer-1.0 gstreamer-base-1.0 gstreamer-app-1.0 gstreamer-audio-1.0 gstreamer-video-1.0; do pc "$m" "$GST_VERSION"; done
+pc pixman-1 "$(zahl pixman-version.h PIXMAN_VERSION_STRING)"
+pc openssl "$(zahl openssl/opensslv.h OPENSSL_VERSION_STR)"
+pc libjpeg "$(zahl jconfig.h LIBJPEG_TURBO_VERSION)"
+pc zlib "$(zahl zlib.h ZLIB_VERSION)"
+pc json-glib-1.0 "$(zahl json-glib/json-version.h JSON_VERSION_S)"
+pc opus 1.5
+ls -la "$GST/lib/libgstreamer-ios.a"
+for m in glib-2.0 pixman-1 openssl json-glib-1.0; do printf '  %s %s\n' "$m" "$(sed -n 's/^Version: //p' "$GST/lib/pkgconfig/$m.pc")"; done
 
 PKGCFG="$ARBEIT/pkg-config"
 cat > "$PKGCFG" <<EOF
@@ -143,6 +155,11 @@ if [ ! -f "$PREFIX/lib/libspice-client-glib-2.0.a" ]; then
     holen "spice-gtk-$SPICE_GTK.tar.xz" "https://www.spice-space.org/download/gtk/spice-gtk-$SPICE_GTK.tar.xz" "$SPICE_GTK_SHA256"
     auspacken "spice-gtk-$SPICE_GTK.tar.xz"
     q="$ARBEIT/quelle/spice-gtk-$SPICE_GTK"
+    # channel-display.c will auf "Unix" <drm/drm_fourcc.h> (libdrm), braucht
+    # daraus nur DRM_FORMAT_MOD_INVALID; iOS hat kein libdrm.
+    mkdir -p "$PREFIX/include/drm"
+    printf '%s\n' '/* Ersatz fuer libdrm auf iOS (native/spice-stapel/ios.sh) */' \
+        '#define DRM_FORMAT_MOD_INVALID 0x00ffffffffffffffULL' > "$PREFIX/include/drm/drm_fourcc.h"
     sed -i '' -E "/^subdir\('(tools|tests|man|po|vapi|data)'\)/d; /^    subdir\('doc'\)/d" "$q/meson.build"
     meson_bau "$q" \
         -Dgtk=disabled -Dwebdav=disabled -Dusbredir=disabled -Dpolkit=disabled \
@@ -156,17 +173,22 @@ fi
 schritt "SpiceGlib.framework"
 FW="$AUS/SpiceGlib.framework"
 rm -rf "$FW"; mkdir -p "$FW"
-# GLib, GObject, GIO und spice-glib ganz (rwspice ruft sie direkt), der Rest
-# soweit gebraucht.
-ganz=()
-for a in "$PREFIX/lib/libspice-client-glib-2.0.a" "$GST/lib/libglib-2.0.a" "$GST/lib/libgobject-2.0.a" "$GST/lib/libgio-2.0.a"; do
-    ganz+=("-Wl,-force_load,$a")
-done
-# shellcheck disable=SC2046
+# spice-glib ganz; aus dem GStreamer-Archiv das, was spice-glib braucht, und
+# dazu alles, was rwspice selbst von GLib/GObject/GIO ruft (-u je Symbol,
+# aus rwspice.c ermittelt). Diese Symbole exportiert das Framework.
+"$CC" "${FLAGS[@]}" -c -x objective-c -fvisibility=hidden $("$PKGCFG" --cflags spice-client-glib-2.0) \
+    "$WURZEL/native/rwspice/rwspice.c" -o "$ARBEIT/rwspice-probe.o"
+unbekannt=()
+while read -r sym; do unbekannt+=("-Wl,-u,$sym"); done < <(nm -u "$ARBEIT/rwspice-probe.o" | grep -E '^_(g_|gst_|json_)' )
+echo "${#unbekannt[@]} GLib-Symbole fuer rwspice"
 "$CC" "${FLAGS[@]}" -dynamiclib -o "$FW/SpiceGlib" \
     -install_name @rpath/SpiceGlib.framework/SpiceGlib \
-    "${ganz[@]}" $("$PKGCFG" --libs spice-client-glib-2.0) \
-    -framework Foundation -framework CoreFoundation -framework Security -lresolv -liconv -lz -lc++
+    -Wl,-force_load,"$PREFIX/lib/libspice-client-glib-2.0.a" "${unbekannt[@]}" \
+    "$GST/lib/libgstreamer-ios.a" \
+    -framework Foundation -framework CoreFoundation -framework Security -framework CoreServices \
+    -framework AudioToolbox -framework CoreAudio -framework AVFoundation -framework CoreMedia \
+    -framework CoreVideo -framework VideoToolbox -framework UIKit \
+    -lresolv -liconv -lz -lbz2 -lc++
 cat > "$FW/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -192,11 +214,11 @@ EOF
 {
     echo "SpiceGlib.framework (iOS arm64) enthaelt (statisch zusammengefuegt, als Ganzes austauschbar):"
     echo "  spice-gtk $SPICE_GTK (spice-client-glib), spice-protocol $SPICE_PROTOCOL  https://www.spice-space.org/"
-    [ -d "$PREFIX/include/json-glib-1.0" ] && echo "  json-glib $JSON_GLIB  https://download.gnome.org/sources/json-glib/"
     echo "  aus dem GStreamer-Binaerpaket $GST_VERSION (https://gstreamer.freedesktop.org/data/pkg/ios/$GST_VERSION/):"
-    for m in glib-2.0 gstreamer-1.0 openssl pixman-1 opus libjpeg zlib libffi libpcre2-8; do
-        "$PKGCFG" --exists "$m" && printf '    %-14s %s\n' "$m" "$("$PKGCFG" --modversion "$m")"
+    for m in glib-2.0 gstreamer-1.0 openssl pixman-1 libjpeg zlib json-glib-1.0; do
+        printf '    %-14s %s\n' "$m" "$("$PKGCFG" --modversion "$m")"
     done
+    echo "    (das Paket ist eine zusammengefuegte Bibliothek; gelinkt wird nur, was gebraucht wird)"
 } > "$AUS/SpiceGlib-BIBLIOTHEKEN.txt"
 cat "$AUS/SpiceGlib-BIBLIOTHEKEN.txt"
 ls -la "$FW"
