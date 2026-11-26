@@ -65,11 +65,82 @@ static void melden(int32_t art, int32_t a, int32_t b, int32_t c, int32_t d) {
     if (ereignis_cb) ereignis_cb(art, a, b, c, d);
 }
 
+/* ── Logdatei ────────────────────────────────────────────────────────── */
+
+static GMutex log_mutex;
+static char *log_pfad;
+static gboolean log_debug;
+
+static void log_zeile(const char *bereich, const char *text) {
+    if (!log_pfad) return;
+    g_mutex_lock(&log_mutex);
+    FILE *f = fopen(log_pfad, "a");
+    if (f) {
+        GDateTime *jetzt = g_date_time_new_now_local();
+        char *zeit = g_date_time_format_iso8601(jetzt);
+        fprintf(f, "%s rwspice %s: %s\n", zeit, bereich, text ? text : "");
+        g_free(zeit);
+        g_date_time_unref(jetzt);
+        fclose(f);
+    }
+    g_mutex_unlock(&log_mutex);
+}
+
+static GLogWriterOutput log_schreiber(GLogLevelFlags stufe, const GLogField *felder, gsize n, gpointer _) {
+    (void)_;
+    gboolean wichtig = (stufe & (G_LOG_LEVEL_ERROR | G_LOG_LEVEL_CRITICAL | G_LOG_LEVEL_WARNING | G_LOG_LEVEL_MESSAGE)) != 0;
+    if (wichtig || log_debug) {
+        const char *bereich = "glib", *text = "";
+        for (gsize i = 0; i < n; i++) {
+            if (g_strcmp0(felder[i].key, "GLIB_DOMAIN") == 0 && felder[i].length < 0) bereich = felder[i].value;
+            if (g_strcmp0(felder[i].key, "MESSAGE") == 0 && felder[i].length < 0) text = felder[i].value;
+        }
+        log_zeile(bereich, text);
+    }
+    return g_log_writer_default(stufe, felder, n, NULL);
+}
+
+void rw_spice_logdatei(const char *pfad, int32_t debug) {
+    if (log_pfad || !pfad || !*pfad) return;
+    log_pfad = g_strdup(pfad);
+    log_debug = debug != 0;
+    if (log_debug) spice_util_set_debug(TRUE);
+    g_log_set_writer_func(log_schreiber, NULL, NULL);
+}
+
 static void fehler_setzen(const char *text) {
     g_mutex_lock(&fehler_mutex);
     g_free(letzter_fehler);
     letzter_fehler = g_strdup(text ? text : "");
     g_mutex_unlock(&fehler_mutex);
+    log_zeile("fehler", text);
+}
+
+static const char *ereignis_name(SpiceChannelEvent ev) {
+    switch (ev) {
+    case SPICE_CHANNEL_OPENED: return "offen";
+    case SPICE_CHANNEL_SWITCHING: return "wechselt";
+    case SPICE_CHANNEL_CLOSED: return "geschlossen";
+    case SPICE_CHANNEL_ERROR_CONNECT: return "ERROR_CONNECT";
+    case SPICE_CHANNEL_ERROR_TLS: return "ERROR_TLS";
+    case SPICE_CHANNEL_ERROR_LINK: return "ERROR_LINK";
+    case SPICE_CHANNEL_ERROR_AUTH: return "ERROR_AUTH";
+    case SPICE_CHANNEL_ERROR_IO: return "ERROR_IO";
+    default: return "?";
+    }
+}
+
+/* Jeder Kanal: Ereignis ins Log, Fehler mit Text von spice-glib. */
+static void kanal_ereignis(SpiceChannel *k, SpiceChannelEvent ev, gpointer _) {
+    (void)_;
+    gint typ = 0, id = 0;
+    g_object_get(k, "channel-type", &typ, "channel-id", &id, NULL);
+    const GError *e = spice_channel_get_error(k);
+    char *t = g_strdup_printf("Kanal %s#%d: %s%s%s", spice_channel_type_to_string(typ), id, ereignis_name(ev),
+                              e ? " — " : "", e ? e->message : "");
+    if (ev >= SPICE_CHANNEL_ERROR_CONNECT && !SPICE_IS_MAIN_CHANNEL(k)) fehler_setzen(t);
+    else log_zeile("kanal", t);
+    g_free(t);
 }
 
 /* Fuehrt fn im GLib-Thread aus; daten wird danach freigegeben.
@@ -513,7 +584,9 @@ static void hauptkanal_ereignis(SpiceChannel *k, SpiceChannelEvent ev, gpointer 
     }
     if (ev == SPICE_CHANNEL_SWITCHING) return;
     const GError *e = spice_channel_get_error(k);
-    if (e) fehler_setzen(e->message);
+    char *t = g_strdup_printf("Hauptkanal %s%s%s", ereignis_name(ev), e ? ": " : "", e ? e->message : "");
+    fehler_setzen(t);
+    g_free(t);
     melden(RW_E_GETRENNT, grund_aus(ev), 0, 0, 0);
 }
 
@@ -535,6 +608,7 @@ static void kanal_neu(SpiceSession *s, SpiceChannel *k, gpointer _) {
     (void)s; (void)_;
     gint id = 0;
     g_object_get(k, "channel-id", &id, NULL);
+    g_signal_connect(k, "channel-event", G_CALLBACK(kanal_ereignis), NULL);
 
     if (SPICE_IS_MAIN_CHANNEL(k)) {
         hauptkanal = SPICE_MAIN_CHANNEL(k);

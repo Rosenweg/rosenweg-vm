@@ -31,7 +31,7 @@
 extern "C" {
 #endif
 
-#define RW_SPICE_ABI 1
+#define RW_SPICE_ABI 2
 
 /* Ereignisse an die App. Kommen aus dem GLib-Thread; Dart nimmt sie mit
  * NativeCallable.listener entgegen (asynchron, threadsicher). */
@@ -97,6 +97,11 @@ RW_EXPORT void rw_spice_usb_schalten(const char *id, int32_t an);
 
 /* Letzte Fehlermeldung (Text gehoert dem Aufrufer, mit rw_spice_frei freigeben). */
 RW_EXPORT char *rw_spice_letzter_fehler(void);
+
+/* Meldungen von spice-glib (Warnungen, Fehler; mit debug != 0 auch Debug)
+ * und Kanalfehler zusaetzlich an diese Datei anhaengen. Vor rw_spice_start
+ * aufrufen; nur einmal wirksam. Passwoerter/Tickets schreibt rwspice nie. */
+RW_EXPORT void rw_spice_logdatei(const char *pfad, int32_t debug);
 RW_EXPORT void rw_spice_frei(char *p);
 
 #ifdef __cplusplus
