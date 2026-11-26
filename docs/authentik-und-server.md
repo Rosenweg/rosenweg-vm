@@ -33,7 +33,8 @@ Siehe [gateway/README.md](../gateway/README.md), Abschnitt „Einrichten“:
   dem Token ein brauchbares Ticket gibt.
 - Router: UDP **51831** von `kooperation.rosenweg4303.ch` auf den CT.
 - Firewall: hinein nur 51831/udp (alle) und 8080/tcp (nur CT 128);
-  hinaus nur pve1–3:8006/3128, Authentik 443, DNS.
+  hinaus nur pve1–3:8006/3128, Authentik 443, DNS (nftables im CT,
+  `gateway/nftables.conf`).
 
 ## Interner DNS (UniFi-Gateway 100.64.2.1)
 
