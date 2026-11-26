@@ -22,9 +22,9 @@ macos)
     # (dlopen) ist dort der Standard von miniaudio, darum nur Grundgeruest.
     clang -O2 -fPIC -dynamiclib -fvisibility=hidden "${WARN[@]}" \
         -mmacosx-version-min=13.0 \
-        $($PKG_CONFIG --cflags spice-client-glib-2.0) \
+        $($PKG_CONFIG --cflags spice-client-glib-2.0 libusb-1.0) \
         "${QUELLEN[@]}" \
-        $($PKG_CONFIG --libs spice-client-glib-2.0) \
+        $($PKG_CONFIG --libs spice-client-glib-2.0 libusb-1.0) \
         -framework CoreFoundation -framework CoreAudio -framework AudioToolbox \
         -install_name @rpath/librwspice.dylib \
         -o build/macos/librwspice.dylib
