@@ -52,3 +52,25 @@ pro Person ausführen, App 20 s laufen lassen, Logdatei prüfen. Artefakt
 
 Signieren nur mit den Secrets `WINDOWS_ZERTIFIKAT_PFX`,
 `WINDOWS_ZERTIFIKAT_PASSWORT` (nicht angelegt).
+
+## Android (`.github/workflows/android.yml`)
+
+GitHub-Runner `ubuntu-latest`. Job **stapel** (Matrix arm64-v8a, x86_64):
+meson/ninja/pyparsing aus apt, NDK 28.2 über sdkmanager,
+`native/spice-stapel/bauen.sh android <abi>` (Quellarchive inkl. ~1 GB
+GStreamer-Paket im Actions-Cache), `native/rwspice/bauen.sh android <abi>`,
+Prüfung der Abhängigkeiten und der 16-KB-Ausrichtung. Braucht keine Secrets.
+
+Job **apk**: `librwtunnel.so`, Sammeln nach `build/android-jniLibs`,
+`flutter analyze/test`, `flutter build apk`. Braucht **`BASIS_TOKEN`** (oder
+`BASIS_DEPLOY_KEY`) für die private Basis — wie rosenweg-salz; ohne bricht der
+Job mit Meldung ab. Signatur mit dem Rosenweg-Schlüssel nur mit den Secrets
+`ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`,
+`ANDROID_KEY_PASSWORD`; sonst Debug-Signatur.
+
+## Zugang zur Basis (alle Flutter-Läufe)
+
+Seit rosenweg-vm `rosenweg_basis` nutzt, holen alle Läufe (Linux, macOS,
+Windows, Android, iOS) die private Basis über `.github/actions/basis-zugang`
+mit dem Secret **`BASIS_TOKEN`** (fein granulierter Token, nur
+Rosenweg/rosenweg-basis, Contents read-only) oder `BASIS_DEPLOY_KEY`.

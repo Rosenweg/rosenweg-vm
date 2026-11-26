@@ -175,7 +175,8 @@ jobs:
             echo "::error::Tag $GITHUB_REF_NAME passt nicht zu version $version in pubspec.yaml"
             exit 1
           fi
-          flutter build apk --release
+          # nur die ABIs mit nativem Stapel (sonst kaeme armeabi-v7a ohne librwspice mit)
+          flutter build apk --release --target-platform android-arm64,android-x64
           if [ -n "${SIGNING_STORE_FILE:-}" ]; then
             name="rosenweg-vm-$version.apk"
           else

@@ -26,7 +26,8 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-        // Nur die ABIs, fuer die es den nativen Stapel gibt (native/spice-stapel):
+        // Nur die ABIs, fuer die es den nativen Stapel gibt (native/spice-stapel);
+        // flutter build apk braucht dazu --target-platform android-arm64,android-x64:
         // Telefone (arm64) und der Emulator (x86_64).
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
