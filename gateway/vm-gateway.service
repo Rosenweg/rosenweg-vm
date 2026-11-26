@@ -25,13 +25,17 @@ PrivateDevices=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes
-RestrictAddressFamilies=AF_INET AF_INET6
+# AF_NETLINK und AF_UNIX braucht wireguard-go (StdNetBind: Schnittstellen-
+# und Adressabfrage beim Binden des UDP-Sockets). Ohne sie scheitert der
+# Start mit "address family not supported by protocol".
+RestrictAddressFamilies=AF_INET AF_INET6 AF_NETLINK AF_UNIX
 RestrictNamespaces=yes
 LockPersonality=yes
 MemoryDenyWriteExecute=yes
 CapabilityBoundingSet=
 AmbientCapabilities=
 SystemCallArchitectures=native
+UMask=0077
 
 [Install]
 WantedBy=multi-user.target
