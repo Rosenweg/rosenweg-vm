@@ -31,7 +31,15 @@
 extern "C" {
 #endif
 
-#define RW_SPICE_ABI 2
+#define RW_SPICE_ABI 3
+
+/* Kanalarten fuer RW_E_KANAL: was der Computer anbietet (Ton nur mit
+ * audio0 driver=spice, USB nur mit usbN: spice in Proxmox). */
+enum {
+    RW_K_WIEDERGABE = 1,
+    RW_K_AUFNAHME   = 2,
+    RW_K_USB        = 3,
+};
 
 /* Ereignisse an die App. Kommen aus dem GLib-Thread; Dart nimmt sie mit
  * NativeCallable.listener entgegen (asynchron, threadsicher). */
@@ -46,6 +54,7 @@ enum {
     RW_E_USB         = 8,  /* USB-Liste hat sich geaendert */
     RW_E_USB_FEHLER  = 9,  /* Durchreichen fehlgeschlagen; Text via rw_spice_letzter_fehler */
     RW_E_AGENT       = 10, /* a = 1 Gast-Agent da (Groesse anpassen, Zwischenablage) */
+    RW_E_KANAL       = 11, /* Kanal angeboten: a = RW_K_*, b = 1 neu / 0 weg */
 };
 
 enum {
