@@ -102,7 +102,7 @@ PKGCFG="$ARBEIT/pkg-config"
 cat > "$PKGCFG" <<EOF
 #!/bin/sh
 # nur die Zielbibliotheken, immer statisch (Abhaengigkeiten der .a mitnehmen)
-PKG_CONFIG_LIBDIR="$PREFIX/lib/pkgconfig:$GST/lib/pkgconfig" PKG_CONFIG_PATH= exec pkg-config --static "\$@"
+PKG_CONFIG_LIBDIR="$PREFIX/lib/pkgconfig:$PREFIX/share/pkgconfig:$GST/lib/pkgconfig" PKG_CONFIG_PATH= exec pkg-config --static "\$@"
 EOF
 chmod +x "$PKGCFG"
 KREUZ="$ARBEIT/kreuz.ini"
