@@ -102,9 +102,9 @@ jobs:
           cp gateway/build/vm-gateway gateway/vm-gateway.service gateway/setup.sh ausgabe/
 
       # Dasselbe .deb wie im Bau-Container (linux/paket/im-container.sh), nur
-      # aus dem Buendel dieses Laufs. Verteilt wird es nicht von hier: die
-      # Stationen holen es mit Pruefsumme vom PXE-Server (os-stationen,
-      # pakete/rosenweg-vm/).
+      # aus dem Buendel dieses Laufs. Die Stationen holen es mit Pruefsumme vom
+      # PXE-Server (os-stationen, pakete/rosenweg-vm/); bei Tags geht es zusaetzlich
+      # ins GitHub-Release und auf www.rosenweg4303.ch/apps (Job veroeffentlichen).
       - name: Debian-Paket
         run: |
           linux/paket/bauen.sh --nur-paket
