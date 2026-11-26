@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>Rosenweg Virtuelle Computer – Entwurf B: Monitor mit Rose</title>
+  <rect width="1024" height="1024" rx="224" fill="#D32F2F"/>
+  <rect x="168" y="208" width="688" height="484" rx="56" fill="#FFFFFF"/>
+  <rect x="216" y="256" width="592" height="376" rx="20" fill="#FFF3F2"/>
+  <path d="M512 500 V632" stroke="#2E7D32" stroke-width="24" stroke-linecap="round" fill="none"/>
+  <path fill="#2E7D32" d="M512 596 C474 562 418 562 388 586 C424 620 480 624 512 596 Z"/>
+  <path fill="#2E7D32" d="M512 560 C550 526 606 526 636 550 C600 584 544 588 512 560 Z"/>
+  <!-- Bluete: runder Kopf mit Spirale -->
+  <circle cx="512" cy="410" r="104" fill="#D32F2F"/>
+  <path fill="none" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round"
+        d="M512 412 A16 16 0 0 1 512 380 A28 28 0 0 1 540 408 A44 44 0 0 1 496 452 A60 60 0 0 1 436 392 A76 76 0 0 1 512 316"/>
+  <path fill="#FFFFFF" d="M462 684 H562 L580 768 H444 Z"/>
+  <rect x="340" y="756" width="344" height="52" rx="26" fill="#FFFFFF"/>
+</svg>

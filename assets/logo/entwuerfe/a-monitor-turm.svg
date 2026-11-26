@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>Rosenweg Virtuelle Computer – Entwurf A: Monitor mit Turm</title>
+  <rect width="1024" height="1024" rx="224" fill="#D32F2F"/>
+  <rect x="168" y="208" width="688" height="484" rx="56" fill="#FFFFFF"/>
+  <rect x="216" y="256" width="592" height="376" rx="20" fill="#7F1D1D"/>
+  <g id="turm">
+    <path fill="#FFFFFF" d="M408 632 V380 H424 V328 H476 V380 H486 V328 H538 V380 H548 V328 H600 V380 H616 V632 Z"/>
+    <path fill="#7F1D1D" d="M476 632 V566 A36 36 0 0 1 548 566 V632 Z"/>
+    <rect fill="#7F1D1D" x="496" y="430" width="32" height="52" rx="16"/>
+  </g>
+  <path fill="#FFFFFF" d="M462 684 H562 L580 768 H444 Z"/>
+  <rect x="340" y="756" width="344" height="52" rx="26" fill="#FFFFFF"/>
+</svg>
