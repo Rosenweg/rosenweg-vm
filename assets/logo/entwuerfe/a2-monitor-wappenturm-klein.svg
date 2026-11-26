@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>Rosenweg Virtuelle Computer – Entwurf A2: Monitor mit Wappen-Turm</title>
+  <rect width="1024" height="1024" rx="224" fill="#D32F2F"/>
+  <g>
+    <rect x="168" y="208" width="688" height="484" rx="56" fill="#FFFFFF"/>
+    <rect x="216" y="256" width="592" height="376" rx="20" fill="#7F1D1D"/>
+    <g transform="translate(373.5 274)"><path fill="#FFFFFF" fill-rule="evenodd" d="M138.5 17L18 81H260Z M37 89H243V115H37Z M64 89V115H95V89Z M125 89V115H157V89Z M187 89V115H215V89Z M37 123H242V146H37Z M46 152H229L241 359H46Z M115 359V287A28.5 28.5 0 0 1 172 287V359Z"/></g>
+    <path fill="#FFFFFF" d="M462 684 H562 L580 768 H444 Z"/>
+    <rect x="340" y="756" width="344" height="52" rx="26" fill="#FFFFFF"/>
+  </g>
+</svg>
