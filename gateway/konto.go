@@ -123,7 +123,11 @@ func (ks *Konten) Pruefen(ctx context.Context, token string) (*Konto, error) {
 	}
 	email, _ := info["email"].(string)
 	email = strings.ToLower(strings.TrimSpace(email))
-	if v, ok := info["email_verified"].(bool); email == "" || (ok && !v) {
+	// email_verified wird bewusst nicht verlangt (26.11.2026): Authentik meldet
+	// fuer alle Rosenweg-Konten false, weil die Verwaltung die Adressen
+	// eintraegt. Massgebend fuer Rechte ist der Proxmox-Benutzer aus dem Claim
+	// darunter, nicht die Mailadresse.
+	if email == "" {
 		return nil, ErrNichtAngemeldet
 	}
 	b, _ := info[ks.claim].(string)
