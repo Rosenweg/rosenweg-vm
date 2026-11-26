@@ -37,6 +37,13 @@ android {
     // librwspice.so, libspiceglib.so, librwtunnel.so je ABI; zusammengestellt
     // von android/native-sammeln.sh (lokal) bzw. dem Workflow android.yml.
     sourceSets["main"].jniLibs.srcDir("${rootDir}/../build/android-jniLibs")
+    // Plugins bringen teils armeabi-v7a mit (libdartjni.so); ohne Flutter und
+    // rwspice dafuer wuerde ein 32-Bit-Geraet die App installieren und abstuerzen.
+    packaging {
+        jniLibs {
+            excludes += listOf("lib/armeabi-v7a/**", "lib/x86/**")
+        }
+    }
 
     // Rosenweg-Signierschluessel nur ueber Umgebungsvariablen (CI-Secrets,
     // siehe .github/workflows/android.yml; lokal aus keystore.properties

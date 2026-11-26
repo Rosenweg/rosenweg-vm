@@ -220,8 +220,9 @@ Telefon ausprobiert.
 - **APK:** `android/native-sammeln.sh` legt `librwtunnel.so`, `librwspice.so`,
   `libspiceglib.so` nach `build/android-jniLibs/<abi>/` (Gradle nimmt den
   Ordner als jniLibs). Nur **arm64-v8a** (Telefone) und **x86_64** (Emulator):
-  `flutter build apk --release --target-platform android-arm64,android-x64`.
-  ~100 MB (zwei ABIs; ein App-Bundle oder `--split-per-abi` halbiert das).
+  `flutter build apk --release --target-platform android-arm64,android-x64`;
+  armeabi-v7a/x86-Reste von Plugins schliesst Gradle aus (`packaging.jniLibs`).
+  ~89 MB (zwei ABIs; ein App-Bundle oder `--split-per-abi` halbiert das).
 - **Tunnel:** ✓ `librwtunnel.so` (Go c-shared). **Kein VpnService**, kein
   VPN-Dialog, keine Rechte; der Tunnel lebt nur, solange die App läuft
   (architektur.md §5). gomobile braucht es nicht, die C-Schnittstelle ist
