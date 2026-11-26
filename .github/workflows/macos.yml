@@ -23,6 +23,7 @@ concurrency:
 
 permissions:
   contents: write  # Release bei Tags
+  id-token: write  # OIDC-Token fuer www.rosenweg4303.ch/apps (kein Geheimnis)
 
 env:
   GO_VERSION: "1.27.4"
@@ -104,9 +105,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # der Linux-Lauf legt dasselbe Release womoeglich gleichzeitig an
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
-            || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes "macOS-Installer"
+            || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes "macOS-Installer" \
+            || gh release view "$GITHUB_REF_NAME" >/dev/null
           gh release upload "$GITHUB_REF_NAME" build/macos-installer/*.dmg --clobber
+
+      # DMG auf www.rosenweg4303.ch/apps (Weg: Rosenweg/Website, pbx/README.md,
+      # "Seite /apps und App-Releases"). Die Anlage prueft Repo, Tag = Version, Pruefsumme.
+      - uses: Rosenweg/Website/.github/actions/apps-release@main
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          dateien: build/macos-installer/*.dmg
 
       - name: Aufraeumen
         if: always()

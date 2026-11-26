@@ -134,7 +134,8 @@ Stand 25.11.2026. Aufwand grob in Personentagen (PT), ohne Store-Verfahren.
   Ersetzen `killall Dock`, damit das neue Symbol erscheint.
 - **CI:** `.github/workflows/macos.yml` (von Hand oder bei Tag `v*`, GitHub-
   Runner `macos-26`): MacPorts + spice-gtk, dann `bauen.sh`; DMG als
-  Artefakt, bei Tags als Release. Signieren/Notarisieren nur mit den
+  Artefakt, bei Tags als Release und auf www.rosenweg4303.ch/apps (wie das
+  .deb aus `linux.yml`; Anmeldung per GitHub-OIDC, kein Geheimnis). Signieren/Notarisieren nur mit den
   Secrets `MACOS_ZERTIFIKAT_P12`, `MACOS_ZERTIFIKAT_PASSWORT`,
   `NOTAR_KEY_P8`, `NOTAR_KEY_ID`, `NOTAR_ISSUER` (nicht angelegt).
 - **USB:** libusb kann unter macOS Geräte, die ein Systemtreiber hält
