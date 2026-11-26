@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import 'dart:convert';
 import 'dart:io';
+
+import '../netz/json_anfrage.dart';
 
 /// Ein Computer (virtuelle Maschine) so, wie die Oberflaeche ihn braucht.
 /// Keine Proxmox-Begriffe nach aussen.
@@ -27,21 +28,17 @@ class Gateway {
   Future<dynamic> _ruf(String methode, String pfad) async {
     final token = await _token();
     if (token == null) throw GatewayFehler(401, 'Bitte neu anmelden');
-    final c = HttpClient()..connectionTimeout = const Duration(seconds: 10);
-    try {
+    final a = await jsonAnfrage('Gateway $methode $pfad', (c) async {
       final r = await c.openUrl(methode, Uri.parse('$basis$pfad'));
       r.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
-      final a = await r.close().timeout(const Duration(seconds: 30));
-      final text = await a.transform(utf8.decoder).join();
-      final j = text.isEmpty ? null : jsonDecode(text);
-      if (a.statusCode != 200) {
-        final m = j is Map ? j['error'] as String? : null;
-        throw GatewayFehler(a.statusCode, m ?? 'Fehler ${a.statusCode}');
-      }
-      return j;
-    } finally {
-      c.close();
+      return r.close();
+    });
+    final j = a.json;
+    if (a.status != 200) {
+      final m = j is Map ? j['error'] as String? : null;
+      throw GatewayFehler(a.status, m ?? 'Fehler ${a.status}');
     }
+    return j;
   }
 
   /// Antwortet der Gateway? Fuer "im Haus" (interner Endpunkt) vs. unterwegs.
