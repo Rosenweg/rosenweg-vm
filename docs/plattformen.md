@@ -6,14 +6,14 @@ Stand 25.11.2026. Aufwand grob in Personentagen (PT), ohne Store-Verfahren.
 
 | | Linux (Stationen) | Windows | macOS | Android | iOS/iPadOS |
 |---|---|---|---|---|---|
-| spice-glib | Debian-Paket | MSYS2 (mingw64) | MacPorts (Entw.), eigener Bau (Auslieferung) | eigener Bau (NDK) | eigener Bau (Xcode) |
-| rwtunnel (Go) | c-shared | c-shared (mingw) | ✓ gebaut | ✓ gebaut (arm64, x86_64) | ✓ gebaut (c-archive) |
+| spice-glib | Debian-Paket | MSYS2 (UCRT64) | MacPorts (Entw.), eigener Bau (Auslieferung) | eigener Bau (NDK) | eigener Bau (Xcode) |
+| rwtunnel (Go) | c-shared | ✓ c-shared (mingw) | ✓ gebaut | ✓ gebaut (arm64, x86_64) | ✓ gebaut (c-archive) |
 | Ton | PipeWire/Pulse/ALSA | WASAPI | ✓ CoreAudio (Wiedergabe getestet) | AAudio/OpenSL | CoreAudio + AVAudioSession |
 | Mikrofon | keine Rechte | Datenschutz-Einstellung | Erlaubnis-Dialog | RECORD_AUDIO | Erlaubnis-Dialog |
 | USB | ja (Rechte nötig) | ja (UsbDk-Treiber) | eingeschränkt | ja (Android-USB-Host) | **nein** |
 | Anmeldung (einmal, 30 Tage) | localhost | localhost | localhost | eigenes Schema | eigenes Schema |
 | DNS-Server für „im Haus“ | resolv.conf | PowerShell/ipconfig | resolv.conf/scutil | LinkProperties (Kanal) | offen (libresolv) |
-| Stand | **.deb gebaut** (CT 141, 26.11.2026), Start unter Xvfb bis zur Anmeldung | nicht gebaut | **DMG gebaut** (arm64, ab macOS 26, ad hoc) | Tunnel baut | Tunnel baut |
+| Stand | **.deb gebaut** (CT 141, 26.11.2026), Start unter Xvfb bis zur Anmeldung | **Installer gebaut** (CI windows-latest, 26.11.2026), Ladetest + Start im Runner, nicht an echter VM getestet | **DMG gebaut** (arm64, ab macOS 26, ad hoc) | Tunnel baut | Tunnel baut |
 
 ## Linux (zuerst, Stationen; Debian 13)
 
@@ -54,17 +54,54 @@ Stand 25.11.2026. Aufwand grob in Personentagen (PT), ohne Store-Verfahren.
 
 ## Windows
 
-- **SPICE:** MSYS2 `mingw-w64-x86_64-spice-gtk` liefert spice-glib mit usbredir
-  und allen Abhängigkeiten als DLLs (so baut auch virt-viewer für Windows).
-  rwspice mit mingw-gcc als DLL (reines C-ABI, passt zum MSVC-gebauten Runner).
-  Alle DLLs neben die .exe (LGPL: dynamisch, austauschbar).
+Stand 26.11.2026: Installer baut in CI (`.github/workflows/windows.yml`,
+GitHub-Runner `windows-latest`), Ladetest und Start der installierten App im
+Runner grün. Noch nicht gegen eine echte VM probiert (kein Windows-Rechner).
+
+- **SPICE:** MSYS2 **UCRT64** `mingw-w64-ucrt-x86_64-spice-gtk` liefert
+  spice-glib mit usbredir, libusb (mit UsbDk-Unterstützung) und **phodav**
+  (Ordner freigeben geht hier, anders als mit MacPorts) als DLLs — so baut auch
+  virt-viewer für Windows. rwspice mit gcc aus MSYS2 als `rwspice.dll`
+  (`native/rwspice/bauen.sh windows`, reines C-ABI, passt zum MSVC-gebauten
+  Runner von Flutter). Wie unter macOS biegt rwspice die Suchpfade von
+  GStreamer und GIO auf leere Ordner im Bündel um (`plugins/`), damit keine
+  fremden Module geladen werden.
+- **Tunnel:** Go als DLL über mingw (`native/rwtunnel/bauen.sh windows`, in der
+  MSYS2-Shell mit deren gcc). **Kein wintun, kein Dienst, kein Admin** — der
+  Tunnel läuft wie überall im Prozess (gVisor-Netzstapel), siehe
+  architektur.md §5.
+- **Bündel und Installer:** `windows/installer/bauen.sh` (MSYS2-Shell):
+  Flutter-Ausgabe + `rwspice.dll` + `rwtunnel.dll` + alle DLLs, die davon aus
+  `/ucrt64/bin` gebraucht werden (rekursiv über `ldd`, 48 Stück), Lizenzen
+  unter `Lizenzen/` (LICENSE, LIZENZEN.md, miniaudio, `BIBLIOTHEKEN.txt` mit
+  MSYS2-Paket und Version je DLL). Danach ein **Ladetest**
+  (`native/rwspice/test/laden_test.c`) mit einem PATH ohne MSYS2: fehlt eine
+  DLL im Bündel, bricht der Bau ab. Installer mit **Inno Setup**
+  (`windows/installer/rosenweg-vm.iss`) →
+  `build/windows-installer/Rosenweg-Virtuelle-Computer-<v>-Windows.exe`
+  (~30 MB). Entscheid Inno Setup statt MSIX: MSIX lässt sich ohne vertrauens-
+  würdige Signatur gar nicht installieren und kennt keine optionale Treiber-
+  installation; Inno Setup installiert **pro Person ohne Administrator-
+  rechte** nach `%LOCALAPPDATA%\Programs`, Update an Ort und Stelle (gleiche
+  AppId), sauber deinstallierbar, `/VERYSILENT` für Verteilung.
+- **USB:** spice-glib nutzt libusb mit **UsbDk** (Red Hat/Daynix, Apache-2.0).
+  Der Installer bietet UsbDk 1.0.22 als Option an (feste Prüfsumme); nur dieser
+  Schritt fragt einmal nach Administratorrechten (UAC). Ohne UsbDk bleibt die
+  USB-Liste leer, alles andere geht.
 - **Ton/Mikrofon:** WASAPI über miniaudio; Mikrofon braucht die Freigabe in
-  den Windows-Datenschutzeinstellungen (Apps dürfen auf das Mikrofon zugreifen).
-- **USB:** spice-glib nutzt unter Windows libusb mit **UsbDk** (Red Hat,
-  Apache-2.0), wie virt-viewer. UsbDk ist ein Treiber und braucht **einmal
-  Administratorrechte** zur Installation (MSI); danach keine Rechte mehr.
-- **Tunnel:** Go als DLL über mingw (`bauen.sh windows`). Kein wintun, kein Dienst.
-- **Aufwand:** 5–8 PT (Stapel, Bündeln, UsbDk-Installer, Test).
+  den Windows-Datenschutzeinstellungen.
+- **Logo:** `windows/runner/resources/app_icon.ico` aus dem Baukasten
+  (`assets/logo/erzeugen.sh`), Programm- und Produktname in `Runner.rc`.
+- **Signatur:** ohne Code-Signing-Zertifikat warnt SmartScreen beim ersten
+  Start („Weitere Informationen" → „Trotzdem ausführen"). Mit Secrets
+  `WINDOWS_ZERTIFIKAT_PFX` (base64) und `WINDOWS_ZERTIFIKAT_PASSWORT` signiert
+  der Lauf Programm, eigene DLLs und Installer (signtool, Zeitstempel).
+  Sinnvoll: ein OV-Zertifikat (SmartScreen-Ruf baut sich langsam auf) oder
+  Azure Trusted Signing.
+- **Veröffentlichen:** bei Tag `v*` ins GitHub-Release und auf /apps
+  (`.exe` = Plattform windows), wie .deb und .dmg.
+- **Offen:** Test an echter VM (Bild, Ton, USB mit UsbDk, Ordner); stille
+  Kerberos-Anmeldung kommt mit `RosenwegKonto` aus rosenweg_basis.
 
 ## macOS
 

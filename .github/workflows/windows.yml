@@ -1,0 +1,162 @@
+# Windows-Installer auf einem von GitHub gehosteten Windows-Runner.
+#
+# Windows-Minuten zaehlen bei privaten Repos doppelt; darum nur, wenn sich
+# etwas fuer Windows aendert (Pfadfilter), von Hand oder bei einem Tag v*.
+#
+# Ablauf (siehe docs/plattformen.md, Windows):
+#   MSYS2 UCRT64 mit spice-gtk (liefert spice-glib, GLib, GStreamer-Kern,
+#   usbredir, libusb mit UsbDk-Unterstuetzung, phodav als DLLs), Go fuer
+#   rwtunnel.dll, gcc fuer rwspice.dll, Flutter (MSVC) fuer die App,
+#   windows/installer/bauen.sh fuer Buendel, Ladetest und Inno-Setup-Installer.
+#
+# Signieren nur, wenn die Secrets gesetzt sind (sonst unsigniert, SmartScreen warnt):
+#   WINDOWS_ZERTIFIKAT_PFX       base64 eines Code-Signing-Zertifikats (.pfx)
+#   WINDOWS_ZERTIFIKAT_PASSWORT  Passwort dazu
+name: Windows
+
+on:
+  pull_request:
+    paths:
+      - 'windows/**'
+      - 'native/**'
+      - 'lib/**'
+      - 'pubspec.*'
+      - '.github/workflows/windows.yml'
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write  # Release bei Tags
+  id-token: write  # OIDC-Token fuer www.rosenweg4303.ch/apps (kein Geheimnis)
+
+env:
+  GO_VERSION: "1.27.4"
+  FLUTTER_VERSION: "3.47.5"
+
+jobs:
+  installer:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          path-type: inherit
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-spice-gtk
+
+      - name: Inno Setup
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) {
+            choco install innosetup -y --no-progress
+          }
+
+      - name: Go-Tests (Tunnel)
+        shell: msys2 {0}
+        run: |
+          cd native/rwtunnel
+          go vet ./...
+          go test -count=1 ./...
+
+      - name: Native Bibliotheken
+        shell: msys2 {0}
+        run: |
+          native/rwtunnel/bauen.sh windows
+          native/rwspice/bauen.sh windows
+
+      - name: Flutter pruefen und bauen
+        shell: pwsh
+        run: |
+          flutter config --no-analytics | Out-Null
+          flutter pub get
+          flutter test
+          flutter build windows --release
+
+      - name: Signierzertifikat (falls Secret gesetzt)
+        shell: pwsh
+        env:
+          PFX: ${{ secrets.WINDOWS_ZERTIFIKAT_PFX }}
+        run: |
+          if ($env:PFX) {
+            $p = Join-Path $env:RUNNER_TEMP 'signieren.pfx'
+            [IO.File]::WriteAllBytes($p, [Convert]::FromBase64String($env:PFX))
+            "RW_SIGNTOOL_ZERT=$p" | Out-File -Append $env:GITHUB_ENV
+            $st = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName | Select-Object -Last 1
+            $st.DirectoryName | Out-File -Append $env:GITHUB_PATH
+          } else {
+            Write-Output "::warning::Kein Code-Signing-Zertifikat - Installer unsigniert (SmartScreen warnt)."
+          }
+
+      - name: Buendel, Ladetest, Installer
+        shell: msys2 {0}
+        env:
+          RW_SIGNTOOL_PASSWORT: ${{ secrets.WINDOWS_ZERTIFIKAT_PASSWORT }}
+        run: windows/installer/bauen.sh --ohne-native --ohne-flutter
+
+      # Installer still (pro Person) ausfuehren, App starten, 20 s laufen
+      # lassen: sie muss leben und librwtunnel geladen haben (Logdatei).
+      - name: Rauchtest (installieren, starten)
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem build/windows-installer/*.exe | Select-Object -First 1
+          Start-Process $setup.FullName -ArgumentList '/VERYSILENT','/CURRENTUSER','/SUPPRESSMSGBOXES','/NORESTART' -Wait
+          $exe = Join-Path $env:LOCALAPPDATA 'Programs\Rosenweg Virtuelle Computer\rosenweg_vm.exe'
+          if (-not (Test-Path $exe)) { throw "nicht installiert: $exe" }
+          $p = Start-Process $exe -PassThru
+          Start-Sleep -Seconds 20
+          $log = Join-Path $env:LOCALAPPDATA 'Rosenweg Virtuelle Computer\app.log'
+          if (Test-Path $log) { Get-Content $log }
+          if ($p.HasExited) { throw "App nach dem Start beendet (Code $($p.ExitCode))" }
+          Stop-Process -Id $p.Id -Force
+          if ((Test-Path $log) -and (Select-String -Path $log -Pattern 'nicht geladen' -Quiet)) { throw 'Bibliothek nicht geladen (app.log)' }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rosenweg-vm-windows
+          path: build/windows-installer/*.exe
+          retention-days: 14
+
+      - name: Release (nur bei Tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Linux- und macOS-Lauf legen dasselbe Release womoeglich gleichzeitig an
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes "Windows-Installer" \
+            || gh release view "$GITHUB_REF_NAME" >/dev/null
+          gh release upload "$GITHUB_REF_NAME" build/windows-installer/*.exe --clobber
+
+      # Installer auf www.rosenweg4303.ch/apps (Weg: Rosenweg/Website, pbx/README.md,
+      # "Seite /apps und App-Releases"). Die Anlage prueft Repo, Tag = Version, Pruefsumme.
+      - uses: Rosenweg/Website/.github/actions/apps-release@main
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          dateien: build/windows-installer/*.exe
+
+      - name: Aufraeumen
+        if: always()
+        shell: pwsh
+        run: Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $env:RUNNER_TEMP 'signieren.pfx')

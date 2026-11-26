@@ -12,7 +12,13 @@
 #include "rwspice.h"
 
 #include <spice-client.h>
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <psapi.h>
+#else
 #include <dlfcn.h>
+#endif
 #ifdef __APPLE__
 #include <libusb.h>
 #endif
@@ -207,10 +213,36 @@ static void buendel_pfade(void) {
 }
 #endif
 
+#ifdef _WIN32
+/* Windows: spice-glib, GLib und GStreamer liegen als DLLs neben der .exe
+ * (windows/installer/bauen.sh). Ihre eingebauten Suchpfade leiten sich aus
+ * dem Ort der DLL ab (..\lib\gstreamer-1.0, ..\lib\gio\modules) und
+ * koennten so fremde Module finden. Wie unter macOS auf leere Ordner neben
+ * der DLL umbiegen; Plugins braucht rwspice nicht (siehe oben). */
+static void buendel_pfade(void) {
+    HMODULE ich = NULL;
+    wchar_t w[MAX_PATH];
+    if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                            (LPCWSTR)(void *)buendel_pfade, &ich)) return;
+    DWORD n = GetModuleFileNameW(ich, w, MAX_PATH);
+    if (n == 0 || n >= MAX_PATH) return;
+    gchar *datei = g_utf16_to_utf8((const gunichar2 *)w, n, NULL, NULL, NULL);
+    if (!datei) return;
+    gchar *ordner = g_path_get_dirname(datei);
+    gchar *gst = g_build_filename(ordner, "plugins", "gstreamer-1.0", NULL);
+    gchar *gio = g_build_filename(ordner, "plugins", "gio-modules", NULL);
+    g_setenv("GST_PLUGIN_SYSTEM_PATH_1_0", gst, FALSE);
+    g_setenv("GST_PLUGIN_PATH_1_0", gst, FALSE);
+    g_setenv("GST_REGISTRY_FORK", "no", FALSE);
+    g_setenv("GIO_MODULE_DIR", gio, FALSE);
+    g_free(gst); g_free(gio); g_free(ordner); g_free(datei);
+}
+#endif
+
 void rw_spice_start(int32_t eigene_schleife, rw_spice_ereignis_fn cb) {
     ereignis_cb = cb;
     if (kontext) return;
-#ifdef __APPLE__
+#if defined(__APPLE__) || defined(_WIN32)
     buendel_pfade();
 #endif
     /* spice-glib haengt seine Quellen an den Standardkontext. Darum genau den
@@ -675,7 +707,18 @@ void rw_spice_usb_schalten(const char *id, int32_t an) {
 int32_t rw_spice_ordner_moeglich(void) {
     /* spice-glib bringt den WebDAV-Server nur mit, wenn es mit phodav gebaut
      * ist; ohne bleibt der Kanal stumm. */
+#ifdef _WIN32
+    /* kein RTLD_DEFAULT: alle geladenen Module des Prozesses fragen */
+    HMODULE module[512];
+    DWORD bytes = 0;
+    if (!K32EnumProcessModules(GetCurrentProcess(), module, sizeof module, &bytes)) return 0;
+    for (DWORD i = 0; i < bytes / sizeof(HMODULE) && i < 512; i++) {
+        if (GetProcAddress(module[i], "phodav_server_new")) return 1;
+    }
+    return 0;
+#else
     return dlsym(RTLD_DEFAULT, "phodav_server_new") != NULL ? 1 : 0;
+#endif
 }
 
 static gboolean ordner_aktiv;

@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "Rosenweg" "\0"
-            VALUE "FileDescription", "rosenweg_vm" "\0"
+            VALUE "FileDescription", "Rosenweg Virtuelle Computer" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "rosenweg_vm" "\0"
-            VALUE "LegalCopyright", "Rosenweg" "\0"
+            VALUE "LegalCopyright", "Rosenweg, GPL-3.0-or-later" "\0"
             VALUE "OriginalFilename", "rosenweg_vm.exe" "\0"
-            VALUE "ProductName", "rosenweg_vm" "\0"
+            VALUE "ProductName", "Rosenweg Virtuelle Computer" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

@@ -38,7 +38,8 @@ linux)
     ;;
 windows)
     mkdir -p build/windows
-    GOOS=windows GOARCH=amd64 CC="${CC:-x86_64-w64-mingw32-gcc}" \
+    # Kreuzbau mit mingw-w64 (Linux/macOS) oder in der MSYS2-Shell (gcc).
+    GOOS=windows GOARCH=amd64 CC="${CC:-$(command -v x86_64-w64-mingw32-gcc || echo gcc)}" \
         go build "${FLAGS[@]}" -buildmode=c-shared -o build/windows/rwtunnel.dll ./capi
     ;;
 android)
