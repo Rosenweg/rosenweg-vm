@@ -93,15 +93,49 @@ func (g *Gateway) spiceBedienen(c net.Conn) {
 		return
 	}
 	defer oben.Close()
-	if _, err := fmt.Fprintf(oben, "CONNECT %s HTTP/1.0\r\n\r\n", ziel); err != nil {
+	// Der spiceproxy von Proxmox liest das Ticket aus dem Host-Kopf, nicht aus
+	// der CONNECT-Zeile (PVE::APIServer::AnyEvent, verify_spice_connect_url).
+	// Ohne Host antwortet er "401 invalid ticket". Das Ticket gilt dort nur
+	// rund 40 Sekunden ab Ausstellung.
+	if _, err := fmt.Fprintf(oben, "CONNECT %s HTTP/1.0\r\nHost: %s\r\n\r\n", ziel, ziel); err != nil {
 		return
 	}
-	e.Ergebnis = "ok"
+	// Antwort von pve:3128 lesen, damit das Protokoll stimmt ("ok" erst bei
+	// 200), und unveraendert an die App weitergeben.
+	oben.SetReadDeadline(time.Now().Add(15 * time.Second))
+	obenBr := bufio.NewReader(oben)
+	var kopf strings.Builder
+	status := ""
+	for {
+		l, err := obenBr.ReadString('\n')
+		if err != nil || kopf.Len() > 8192 {
+			e.Ergebnis, e.Grund = "fehler", "pve:3128 antwortet nicht"
+			g.log.Schreiben(e)
+			antwort(c, 502, "Bad Gateway")
+			return
+		}
+		if status == "" {
+			status = strings.TrimSpace(l)
+		}
+		kopf.WriteString(l)
+		if l == "\r\n" || l == "\n" {
+			break
+		}
+	}
+	oben.SetReadDeadline(time.Time{})
+	if f := strings.Fields(status); len(f) < 2 || f[1] != "200" {
+		e.Ergebnis, e.Grund = "fehler", "pve:3128: "+status
+	} else {
+		e.Ergebnis = "ok"
+	}
 	g.log.Schreiben(e)
+	if _, err := io.WriteString(c, kopf.String()); err != nil || e.Ergebnis != "ok" {
+		return
+	}
 	c.SetReadDeadline(time.Time{})
 
 	fertig := make(chan struct{}, 2)
 	go func() { io.Copy(oben, br); fertig <- struct{}{} }()
-	go func() { io.Copy(c, oben); fertig <- struct{}{} }()
+	go func() { io.Copy(c, obenBr); fertig <- struct{}{} }()
 	<-fertig
 }

@@ -235,7 +235,7 @@ func (g *Gateway) Schnittstelle() http.Handler {
 			g.log.Schreiben(e)
 			text := "Bildschirm nicht verfuegbar"
 			if strings.Contains(strings.ToLower(err.Error()), "spice") {
-				text = "Fuer diesen Computer ist keine Bildschirmausgabe eingerichtet (SPICE)"
+				text = "Dieser Computer hat keine SPICE-Anzeige – Technik: Anzeige auf SPICE stellen"
 			}
 			json200(w, http.StatusBadGateway, map[string]string{"error": text})
 			return

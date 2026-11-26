@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"net/textproto"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -62,7 +63,9 @@ func neueUmgebung(t *testing.T) *umgebungTest {
 	}))
 	t.Cleanup(ak.Close)
 
-	// SPICE-Proxy-Attrappe (pve:3128): Echo nach "200 OK"
+	// SPICE-Proxy-Attrappe (pve:3128): Echo nach "200 OK". Wie der echte
+	// spiceproxy (PVE::APIServer::AnyEvent) liest sie das Ticket aus dem
+	// Host-Kopf, nicht aus der CONNECT-Zeile; ohne passenden Host: 401.
 	sp, _ := net.Listen("tcp", "127.0.0.1:0")
 	t.Cleanup(func() { sp.Close() })
 	go func() {
@@ -74,9 +77,14 @@ func neueUmgebung(t *testing.T) *umgebungTest {
 			go func(c net.Conn) {
 				defer c.Close()
 				br := bufio.NewReader(c)
-				zeile, _ := br.ReadString('\n')
-				br.ReadString('\n')
+				tp := textproto.NewReader(br)
+				zeile, _ := tp.ReadLine()
+				kopf, _ := tp.ReadMIMEHeader()
 				u.spiceIn <- strings.TrimSpace(zeile)
+				if f := strings.Fields(zeile); len(f) != 3 || kopf.Get("Host") != f[1] {
+					io.WriteString(c, "HTTP/1.0 401 invalid ticket\r\n\r\n")
+					return
+				}
 				io.WriteString(c, "HTTP/1.0 200 OK\r\n\r\n")
 				io.Copy(c, br)
 			}(c)
