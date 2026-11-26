@@ -622,11 +622,27 @@ static void agent(GObject *o, GParamSpec *ps, gpointer _) {
     melden(RW_E_AGENT, da ? 1 : 0, 0, 0, 0);
 }
 
+static int kanal_art(SpiceChannel *k) {
+    if (SPICE_IS_PLAYBACK_CHANNEL(k)) return RW_K_WIEDERGABE;
+    if (SPICE_IS_RECORD_CHANNEL(k)) return RW_K_AUFNAHME;
+    if (SPICE_IS_USBREDIR_CHANNEL(k)) return RW_K_USB;
+    return 0;
+}
+
 static void kanal_neu(SpiceSession *s, SpiceChannel *k, gpointer _) {
     (void)s; (void)_;
     gint id = 0;
     g_object_get(k, "channel-id", &id, NULL);
     g_signal_connect(k, "channel-event", G_CALLBACK(kanal_ereignis), NULL);
+    {
+        gint typ = 0;
+        g_object_get(k, "channel-type", &typ, NULL);
+        char *t = g_strdup_printf("Kanal %s#%d angeboten", spice_channel_type_to_string(typ), id);
+        log_zeile("kanal", t);
+        g_free(t);
+        int art = kanal_art(k);
+        if (art) melden(RW_E_KANAL, art, 1, 0, 0);
+    }
 
     if (SPICE_IS_MAIN_CHANNEL(k)) {
         hauptkanal = SPICE_MAIN_CHANNEL(k);
@@ -672,6 +688,8 @@ static void kanal_neu(SpiceSession *s, SpiceChannel *k, gpointer _) {
 
 static void kanal_weg(SpiceSession *s, SpiceChannel *k, gpointer _) {
     (void)s; (void)_;
+    int art = kanal_art(k);
+    if (art) melden(RW_E_KANAL, art, 0, 0, 0);
     if ((SpiceChannel *)hauptkanal == k) hauptkanal = NULL;
     if ((SpiceChannel *)eingabekanal == k) eingabekanal = NULL;
     if ((SpiceChannel *)aufnahmekanal == k) { aufnahmekanal = NULL; aufnahme_schliessen(); }

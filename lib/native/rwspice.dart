@@ -9,6 +9,22 @@ import 'package:ffi/ffi.dart';
 import '../protokoll.dart';
 import 'bibliothek.dart';
 
+/// Kanalarten aus rwspice.h (RW_K_*): was der Computer anbietet.
+enum SpiceKanal {
+  wiedergabe(1),
+  aufnahme(2),
+  usb(3);
+
+  const SpiceKanal(this.code);
+  final int code;
+  static SpiceKanal? aus(int c) {
+    for (final k in values) {
+      if (k.code == c) return k;
+    }
+    return null;
+  }
+}
+
 /// Ereignisse aus native/rwspice/rwspice.h (RW_E_*).
 enum SpiceEreignisArt {
   verbunden(1),
@@ -20,7 +36,10 @@ enum SpiceEreignisArt {
   mikrofon(7),
   usb(8),
   usbFehler(9),
-  agent(10);
+  agent(10),
+
+  /// Kanal angeboten (a = [SpiceKanal].code, b = 1 neu / 0 weg).
+  kanal(11);
 
   const SpiceEreignisArt(this.code);
   final int code;

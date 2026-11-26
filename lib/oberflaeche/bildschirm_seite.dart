@@ -34,6 +34,34 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
   bool _mikrofon = false;
   bool _gastNimmtAuf = false;
 
+  /// Was der Computer anbietet (Ton nur mit audio0 driver=spice, USB nur mit
+  /// usbN: spice). Erst nach dem Verbinden bekannt.
+  final _kanaele = <SpiceKanal>{};
+  bool _kanaeleBekannt = false;
+  Timer? _kanalWarten;
+
+  static const _ohne = {
+    SpiceKanal.wiedergabe: 'Dieser Computer hat keine Tonausgabe ueber SPICE – Technik: Audio-Geraet „SPICE“ hinzufuegen.',
+    SpiceKanal.aufnahme: 'Dieser Computer hat keinen Toneingang ueber SPICE – Technik: Audio-Geraet „SPICE“ hinzufuegen.',
+    SpiceKanal.usb: 'Dieser Computer hat keine USB-Weiterleitung ueber SPICE – Technik: USB-Geraet „Spice-Port“ hinzufuegen.',
+  };
+
+  bool _fehlt(SpiceKanal k) => _kanaeleBekannt && !_kanaele.contains(k);
+
+  /// Die Kanalliste kommt mit dem Hauptkanal, vor dem ersten Bild. Kurz nach
+  /// dem Verbinden gilt sie als vollstaendig.
+  void _kanaeleFestlegen() {
+    if (_kanaeleBekannt || !mounted) return;
+    _kanalWarten?.cancel();
+    setState(() => _kanaeleBekannt = true);
+    String jn(SpiceKanal k) => _kanaele.contains(k) ? 'ja' : 'nein';
+    Protokoll.schreiben('Bildschirm ${widget.computer.vmid}: Ton ${jn(SpiceKanal.wiedergabe)}, '
+        'Mikrofon ${jn(SpiceKanal.aufnahme)}, USB ${jn(SpiceKanal.usb)}');
+  }
+
+  void _hinweis(SpiceKanal k) =>
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_ohne[k]!)));
+
   @override
   void initState() {
     super.initState();
@@ -42,9 +70,13 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
   }
 
   Future<void> _verbinden() async {
+    _kanalWarten?.cancel();
+    _kanalWarten = null;
     setState(() {
       _stand = _Stand.verbinden;
       _meldung = null;
+      _kanaele.clear();
+      _kanaeleBekannt = false;
     });
     try {
       if (AppZustand.testSpice.isNotEmpty) {
@@ -79,8 +111,16 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
   void _ereignis(SpiceEreignis e) {
     if (!mounted) return;
     switch (e.art) {
+      case SpiceEreignisArt.kanal:
+        final k = SpiceKanal.aus(e.a);
+        if (k != null) setState(() => e.b == 1 ? _kanaele.add(k) : _kanaele.remove(k));
       case SpiceEreignisArt.verbunden:
       case SpiceEreignisArt.bildGroesse:
+        if (e.art == SpiceEreignisArt.bildGroesse) {
+          _kanaeleFestlegen();
+        } else {
+          _kanalWarten ??= Timer(const Duration(seconds: 3), _kanaeleFestlegen);
+        }
         if (_stand != _Stand.verbunden) Protokoll.schreiben('Bildschirm ${widget.computer.vmid}: verbunden');
         setState(() => _stand = _Stand.verbunden);
       case SpiceEreignisArt.getrennt:
@@ -158,24 +198,47 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
         toolbarHeight: 44,
         title: Text(widget.computer.name),
         actions: [
-          IconButton(
-            tooltip: _ton ? 'Ton aus' : 'Ton an',
-            icon: Icon(_ton ? Icons.volume_up : Icons.volume_off),
-            onPressed: () {
-              setState(() => _ton = !_ton);
-              _tonSetzen();
-            },
-          ),
-          IconButton(
-            tooltip: _mikrofon ? 'Mikrofon aus' : 'Mikrofon an',
-            icon: Icon(_mikrofon ? Icons.mic : Icons.mic_off,
-                color: _mikrofon && _gastNimmtAuf ? Colors.red : null),
-            onPressed: () {
-              setState(() => _mikrofon = !_mikrofon);
-              _tonSetzen();
-            },
-          ),
-          IconButton(tooltip: 'USB-Geraete', icon: const Icon(Icons.usb), onPressed: _usbMenue),
+          // Fehlt ein Kanal, bleibt der Knopf sichtbar, aber grau; ein Druck
+          // sagt warum (statt still nichts zu tun).
+          if (_fehlt(SpiceKanal.wiedergabe))
+            IconButton(
+              tooltip: _ohne[SpiceKanal.wiedergabe],
+              icon: Icon(Icons.volume_off, color: Theme.of(context).disabledColor),
+              onPressed: () => _hinweis(SpiceKanal.wiedergabe),
+            )
+          else
+            IconButton(
+              tooltip: _ton ? 'Ton aus' : 'Ton an',
+              icon: Icon(_ton ? Icons.volume_up : Icons.volume_off),
+              onPressed: () {
+                setState(() => _ton = !_ton);
+                _tonSetzen();
+              },
+            ),
+          if (_fehlt(SpiceKanal.aufnahme))
+            IconButton(
+              tooltip: _ohne[SpiceKanal.aufnahme],
+              icon: Icon(Icons.mic_off, color: Theme.of(context).disabledColor),
+              onPressed: () => _hinweis(SpiceKanal.aufnahme),
+            )
+          else
+            IconButton(
+              tooltip: _mikrofon ? 'Mikrofon aus' : 'Mikrofon an',
+              icon: Icon(_mikrofon ? Icons.mic : Icons.mic_off,
+                  color: _mikrofon && _gastNimmtAuf ? Colors.red : null),
+              onPressed: () {
+                setState(() => _mikrofon = !_mikrofon);
+                _tonSetzen();
+              },
+            ),
+          if (_fehlt(SpiceKanal.usb))
+            IconButton(
+              tooltip: _ohne[SpiceKanal.usb],
+              icon: Icon(Icons.usb_off, color: Theme.of(context).disabledColor),
+              onPressed: () => _hinweis(SpiceKanal.usb),
+            )
+          else
+            IconButton(tooltip: 'USB-Geraete', icon: const Icon(Icons.usb), onPressed: _usbMenue),
           IconButton(tooltip: 'Strg+Alt+Entf senden', icon: const Icon(Icons.keyboard), onPressed: _strgAltEntf),
         ],
       ),
@@ -211,6 +274,7 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
 
   @override
   void dispose() {
+    _kanalWarten?.cancel();
     _abo?.cancel();
     _spice.trennen();
     super.dispose();

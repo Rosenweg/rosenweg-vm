@@ -153,11 +153,41 @@ class _SpiceBildschirmState extends State<SpiceBildschirm> with SingleTickerProv
     _tasten = effektiv;
   }
 
+  // ── Scrollen ──────────────────────────────────────────────────────────
+  // SPICE kennt nur das Mausrad als Tasten 4 (hoch) und 5 (runter), je
+  // Druck ein Schritt; waagrecht gibt es im Protokoll nicht.
+  // Mausrad: PointerScrollEvent, eine Raste = mindestens ein Schritt.
+  // Trackpad (macOS): PointerPanZoom*, feine Deltas — aufsummieren, je
+  // [_schrittPx] logische Pixel ein Schritt.
+  static const _schrittPx = 24.0;
+  double _scrollRest = 0;
+
+  void _radSchritte(int n) {
+    final taste = n < 0 ? 4 : 5; // SPICE_MOUSE_BUTTON_UP/DOWN
+    for (var i = 0; i < n.abs() && i < 10; i++) {
+      _spice.mausTaste(taste, 1, _tasten);
+      _spice.mausTaste(taste, 0, _tasten);
+    }
+  }
+
   void _rad(PointerSignalEvent e) {
     if (e is! PointerScrollEvent) return;
-    final taste = e.scrollDelta.dy < 0 ? 4 : 5; // SPICE_MOUSE_BUTTON_UP/DOWN
-    _spice.mausTaste(taste, 1, _tasten);
-    _spice.mausTaste(taste, 0, _tasten);
+    final dy = e.scrollDelta.dy;
+    if (dy == 0) return;
+    final n = (dy / _schrittPx).round();
+    _radSchritte(n == 0 ? dy.sign.toInt() : n);
+  }
+
+  void _panStart(PointerPanZoomStartEvent e) => _scrollRest = 0;
+
+  void _panUpdate(PointerPanZoomUpdateEvent e) {
+    // Finger nach unten = Inhalt nach unten = nach oben scrollen (wie am Mac).
+    _scrollRest -= e.panDelta.dy;
+    final n = (_scrollRest / _schrittPx).truncate();
+    if (n != 0) {
+      _scrollRest -= n * _schrittPx;
+      _radSchritte(n);
+    }
   }
 
   KeyEventResult _tastatur(FocusNode n, KeyEvent e) {
@@ -200,6 +230,8 @@ class _SpiceBildschirmState extends State<SpiceBildschirm> with SingleTickerProv
           onPointerDown: (e) => _taste(e, g, true),
           onPointerUp: (e) => _taste(e, g, false),
           onPointerSignal: _rad,
+          onPointerPanZoomStart: _panStart,
+          onPointerPanZoomUpdate: _panUpdate,
           child: ColoredBox(
             color: Colors.black,
             child: SizedBox.expand(
