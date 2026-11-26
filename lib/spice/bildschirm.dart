@@ -13,6 +13,8 @@ import 'package:flutter/services.dart';
 import '../native/rwspice.dart';
 import '../protokoll.dart';
 import 'scancodes.dart';
+import 'tastatur.dart';
+import 'tastatur_einstellung.dart';
 
 /// Zeigt das Bild einer SPICE-Sitzung und schickt Maus, Tastatur und
 /// Beruehrung zurueck.
@@ -25,7 +27,10 @@ import 'scancodes.dart';
 /// CVPixelBuffer, Windows PixelBufferTexture, Android SurfaceTexture), gespeist
 /// aus demselben Puffer — die Schnittstelle von rwspice bleibt gleich.
 class SpiceBildschirm extends StatefulWidget {
-  const SpiceBildschirm({super.key});
+  const SpiceBildschirm({super.key, this.hinweis});
+
+  /// Kurzer Hinweis an die Person (z. B. Zeichen fehlt in der Gastbelegung).
+  final void Function(String text)? hinweis;
 
   @override
   State<SpiceBildschirm> createState() => _SpiceBildschirmState();
@@ -190,15 +195,126 @@ class _SpiceBildschirmState extends State<SpiceBildschirm> with SingleTickerProv
     }
   }
 
+  // ── Tastatur ─────────────────────────────────────────────────────────
+  //
+  // Modus "zeichen" (Vorgabe): druckbare Zeichen werden aus dem GETIPPTEN
+  // Zeichen in die Tastenfolge der Gastbelegung uebersetzt (tastatur.dart).
+  // Damit passt jede Tastatur am Geraet zu jeder Gastbelegung. Umschalter
+  // (Shift, Alt/Option, Strg, Cmd) gehen dabei nicht einzeln zum Gast,
+  // sondern nur zusammen mit einer Steuertaste (Pfeile, F-Tasten, Enter …)
+  // oder als Kurzbefehl (Strg/Cmd + Taste).
+  // Modus "direkt": jede Taste physisch, wie bisher.
+
+  final _einstellung = TastaturEinstellung.i;
+
+  /// Physisch gesendete Tasten: Taste -> mitgedrueckte Umschalter (zum
+  /// Loslassen in umgekehrter Reihenfolge).
+  final _gesendet = <PhysicalKeyboardKey, List<int>>{};
+  final _gemeldet = <String>{};
+
+  void _tasteSenden(int sc, bool druck) {
+    if (druck) {
+      _gedrueckt.add(sc);
+    } else {
+      _gedrueckt.remove(sc);
+    }
+    _spice.taste(sc, druck ? 1 : 0);
+  }
+
+  /// Gerade gehaltene Umschalter als Gast-Scancodes (Zeichenmodus).
+  List<int> _umschalter() {
+    final h = HardwareKeyboard.instance;
+    return [
+      if (h.isControlPressed || (h.isMetaPressed && _einstellung.cmdAlsStrg)) scStrg,
+      if (h.isAltPressed) scAlt,
+      if (h.isShiftPressed) scShift,
+      if (h.isMetaPressed && !_einstellung.cmdAlsStrg) scSuper,
+    ];
+  }
+
   KeyEventResult _tastatur(FocusNode n, KeyEvent e) {
-    final sc = scancode(e.physicalKey);
+    if (_einstellung.modus == TastaturModus.direkt) return _direkt(e);
+    final k = e.physicalKey;
+
+    if (e is KeyUpEvent) {
+      final mods = _gesendet.remove(k);
+      if (mods != null) {
+        final sc = _gedruecktVon(k);
+        if (sc != null) _tasteSenden(sc, false);
+        for (final m in mods.reversed) {
+          _tasteSenden(m, false);
+        }
+      }
+      return KeyEventResult.handled;
+    }
+
+    // Umschalter selbst und die Feststelltaste: nichts senden (das Zeichen
+    // bringt sie schon mit).
+    if (istUmschalter(k) || k == PhysicalKeyboardKey.capsLock) return KeyEventResult.handled;
+
+    final h = HardwareKeyboard.instance;
+    // AltGr meldet Windows als Strg+Alt: mit druckbarem Zeichen ist das Text,
+    // kein Kurzbefehl.
+    final altGr = h.isControlPressed && h.isAltPressed && druckbar(e.character);
+    final kurzbefehl = (h.isControlPressed || h.isMetaPressed) && !altGr;
+
+    if (istSteuertaste(k) || kurzbefehl) {
+      if (e is KeyRepeatEvent) {
+        final sc = _gedruecktVon(k);
+        if (sc != null) _tasteSenden(sc, true);
+        return KeyEventResult.handled;
+      }
+      // Kurzbefehl mit Buchstabe/Zeichen: die Taste, die im GAST dieses
+      // Zeichen ergibt (Strg+Z auf CH-Mac → Strg+Z im Gast, egal welche
+      // Belegung er hat).
+      int? sc;
+      if (!istSteuertaste(k)) {
+        final label = e.logicalKey.keyLabel;
+        if (label.runes.length == 1) sc = grundTaste(_einstellung.belegung, label.toLowerCase().runes.first);
+      }
+      sc ??= scancode(k, macIsoTausch: _einstellung.macIsoTausch);
+      if (sc == null) return KeyEventResult.ignored;
+      final mods = _umschalter();
+      for (final m in mods) {
+        _tasteSenden(m, true);
+      }
+      _gesendet[k] = mods;
+      _scVon[k] = sc;
+      _tasteSenden(sc, true);
+      return KeyEventResult.handled;
+    }
+
+    // Druckbares Zeichen (auch Umlaute, Akzente nach Tottaste, Option-Zeichen
+    // am Mac). Tottaste selbst liefert kein Zeichen: nichts senden.
+    final c = e.character;
+    if (!druckbar(c)) return KeyEventResult.handled;
+    final folge = zeichenFolge(_einstellung.belegung, c!.runes.first);
+    if (folge == null) {
+      Protokoll.schreiben('Tastatur: Zeichen "$c" (U+${c.runes.first.toRadixString(16).toUpperCase()}) '
+          'ist in der Gastbelegung ${_einstellung.belegung.kennung} nicht vorhanden');
+      if (_gemeldet.add(c)) {
+        widget.hinweis?.call('Zeichen „$c“ ist in der Belegung ${_einstellung.belegung.name} nicht vorhanden.');
+      }
+      return KeyEventResult.handled;
+    }
+    _spice.feststellAus();
+    for (final t in folge) {
+      _tasteSenden(t.sc, t.druck);
+    }
+    return KeyEventResult.handled;
+  }
+
+  final _scVon = <PhysicalKeyboardKey, int>{};
+  int? _gedruecktVon(PhysicalKeyboardKey k) => _scVon[k];
+
+  KeyEventResult _direkt(KeyEvent e) {
+    final sc = scancode(e.physicalKey,
+        macIsoTausch: _einstellung.macIsoTausch, cmdAlsStrg: _einstellung.cmdAlsStrg);
     if (sc == null) return KeyEventResult.ignored;
     if (e is KeyDownEvent || e is KeyRepeatEvent) {
-      _gedrueckt.add(sc);
-      _spice.taste(sc, 1);
+      _tasteSenden(sc, true);
     } else if (e is KeyUpEvent) {
-      _gedrueckt.remove(sc);
-      _spice.taste(sc, 0);
+      _tasteSenden(sc, false);
     }
     return KeyEventResult.handled;
   }
@@ -206,10 +322,12 @@ class _SpiceBildschirmState extends State<SpiceBildschirm> with SingleTickerProv
   /// Fokus weg (z. B. Fenster gewechselt): gedrueckte Tasten loslassen, sonst
   /// klemmt im Gast eine Umschalttaste.
   void _allesLoslassen() {
-    for (final sc in _gedrueckt) {
+    for (final sc in _gedrueckt.toList()) {
       _spice.taste(sc, 0);
     }
     _gedrueckt.clear();
+    _gesendet.clear();
+    _scVon.clear();
   }
 
   @override

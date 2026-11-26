@@ -83,6 +83,7 @@ class RwSpice {
         mausBewegung = lib.lookupFunction<Void Function(Int32, Int32, Int32), void Function(int, int, int)>('rw_spice_maus_bewegung'),
         mausTaste = lib.lookupFunction<Void Function(Int32, Int32, Int32), void Function(int, int, int)>('rw_spice_maus_taste'),
         taste = lib.lookupFunction<Void Function(Int32, Int32), void Function(int, int)>('rw_spice_taste'),
+        feststellAus = lib.lookupFunction<Void Function(), void Function()>('rw_spice_feststell_aus'),
         bildschirmGroesse = lib.lookupFunction<Void Function(Int32, Int32), void Function(int, int)>('rw_spice_bildschirm_groesse'),
         _ton = lib.lookupFunction<Void Function(Int32, Int32), void Function(int, int)>('rw_spice_ton'),
         _usbListe = lib.lookupFunction<Pointer<Utf8> Function(), Pointer<Utf8> Function()>('rw_spice_usb_liste'),
@@ -123,6 +124,7 @@ class RwSpice {
   final int Function(Pointer<Uint8>, int, Pointer<Int32>, Pointer<Int32>) bildAbholen;
   final void Function(int, int, int) mausPosition, mausBewegung, mausTaste;
   final void Function(int, int) taste, bildschirmGroesse, _ton;
+  final void Function() feststellAus;
   final Pointer<Utf8> Function() _usbListe, _fehler;
   final void Function(Pointer<Utf8>, int) _usbSchalten;
   final void Function(Pointer<Utf8>) _frei;

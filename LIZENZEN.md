@@ -41,3 +41,9 @@ Lizenztexte der Bibliotheken. Zu den LGPL-Bibliotheken das schriftliche
 Angebot, den Quelltext der ausgelieferten Version zu liefern, oder gleich der
 Verweis auf den Quelltext (Debian-Quellpaket, MSYS2-PKGBUILD, eigener Bau mit
 Tag).
+
+## xkeyboard-config (Daten)
+
+`lib/spice/belegungen.g.dart` ist aus den Symboldateien von xkeyboard-config
+und der Compose-Tabelle von libX11 erzeugt (MIT/X11-Lizenzen,
+https://gitlab.freedesktop.org/xkeyboard-config/xkeyboard-config).

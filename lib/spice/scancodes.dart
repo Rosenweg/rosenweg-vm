@@ -4,13 +4,38 @@ import 'package:flutter/services.dart';
 /// USB-HID-Nutzungen (wie Flutter sie in PhysicalKeyboardKey liefert) auf
 /// PC-Scancodes Satz 1, wie SPICE sie erwartet; E0-Tasten als 0x100 | code.
 ///
-/// Warum die PHYSISCHE Taste und nicht das Zeichen: das Tastaturlayout
-/// (Schweizerdeutsch) wendet der Gast selbst an. Wuerde die App Zeichen
-/// schicken, kaemen auf einem Gast mit CH-Layout Z und Y vertauscht an.
-int? scancode(PhysicalKeyboardKey k) {
+/// Gebraucht im Modus "Tasten direkt" und fuer Tasten ohne Zeichen
+/// (Pfeile, F-Tasten, Enter …). Druckbare Zeichen uebersetzt sonst
+/// tastatur.dart aus dem getippten Zeichen.
+///
+/// [macIsoTausch]: macOS meldet auf ISO-Tastaturen die Taste links oben (§)
+/// als 0x64 und die Taste neben der linken Umschalttaste (<) als 0x35 —
+/// umgekehrt wie ein PC. [cmdAlsStrg]: Cmd (GUI) als Strg senden.
+int? scancode(PhysicalKeyboardKey k, {bool macIsoTausch = false, bool cmdAlsStrg = false}) {
   final hid = k.usbHidUsage;
   if ((hid >> 16) != 0x07) return null;
-  return _tabelle[hid & 0xFFFF];
+  var u = hid & 0xFFFF;
+  if (macIsoTausch && (u == 0x35 || u == 0x64)) u = u == 0x35 ? 0x64 : 0x35;
+  if (cmdAlsStrg && u == 0xe3) return 0x1d;
+  if (cmdAlsStrg && u == 0xe7) return 0x11d;
+  return _tabelle[u];
+}
+
+/// Umschalter (HID 0xe0–0xe7).
+bool istUmschalter(PhysicalKeyboardKey k) {
+  final u = k.usbHidUsage;
+  return (u >> 16) == 0x07 && (u & 0xFFFF) >= 0xe0 && (u & 0xFFFF) <= 0xe7;
+}
+
+/// Tasten, die auch im Zeichenmodus physisch gehen (kein Text): Enter, Esc,
+/// Rueckschritt, Tab, F-Tasten, Druck/Rollen/Pause,
+/// Einfg/Pos1/BildAuf/Entf/Ende/BildAb, Pfeile, Num-Taste, Ziffernblock-
+/// Enter, Kontextmenue.
+bool istSteuertaste(PhysicalKeyboardKey k) {
+  final hid = k.usbHidUsage;
+  if ((hid >> 16) != 0x07) return false;
+  final u = hid & 0xFFFF;
+  return (u >= 0x28 && u <= 0x2b) || (u >= 0x3a && u <= 0x53) || u == 0x58 || u == 0x65;
 }
 
 const _tabelle = <int, int>{
@@ -30,8 +55,10 @@ const _tabelle = <int, int>{
   // Feststell, F1–F12
   0x39: 0x3a, 0x3a: 0x3b, 0x3b: 0x3c, 0x3c: 0x3d, 0x3d: 0x3e, 0x3e: 0x3f, 0x3f: 0x40,
   0x40: 0x41, 0x41: 0x42, 0x42: 0x43, 0x43: 0x44, 0x44: 0x57, 0x45: 0x58,
-  // Druck, Rollen, Pause (Pause ist eine Folge; hier nur die Taste)
-  0x46: 0x137, 0x47: 0x46, 0x48: 0x45,
+  // Druck, Rollen
+  // Pause ist eine E1-Folge, die SPICE so nicht kennt; bewusst weg (0x45
+  // waere die Num-Taste).
+  0x46: 0x137, 0x47: 0x46,
   // Einfg, Pos1, BildAuf, Entf, Ende, BildAb, Pfeile
   0x49: 0x152, 0x4a: 0x147, 0x4b: 0x149, 0x4c: 0x153, 0x4d: 0x14f, 0x4e: 0x151,
   0x4f: 0x14d, 0x50: 0x14b, 0x51: 0x150, 0x52: 0x148,
