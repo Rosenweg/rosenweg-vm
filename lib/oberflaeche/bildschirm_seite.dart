@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 
@@ -8,7 +9,9 @@ import '../native/rwspice.dart';
 import '../protokoll.dart';
 import '../gateway/gateway.dart';
 import '../spice/bildschirm.dart';
+import '../spice/belegungen.dart';
 import '../spice/scancodes.dart';
+import '../spice/tastatur_einstellung.dart';
 
 /// Der Bildschirm eines Computers. Oben eine schmale Leiste mit dem Noetigsten:
 /// Ton, Mikrofon, USB, Strg+Alt+Entf. Alles andere gehoert in den Gast.
@@ -66,6 +69,7 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
   void initState() {
     super.initState();
     _abo = _spice.ereignisse.listen(_ereignis);
+    TastaturEinstellung.i.laden();
     _verbinden();
   }
 
@@ -182,6 +186,102 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
     );
   }
 
+  /// Tastatur: Modus, Gastbelegung (mit Suche), Cmd als Strg, Mac-ISO.
+  Future<void> _tastaturMenue() async {
+    final t = TastaturEinstellung.i;
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => ListenableBuilder(
+        listenable: t,
+        builder: (context, _) => ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(16, 0, 16, 16), children: [
+          Text('Tastatur', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 12),
+          SegmentedButton<TastaturModus>(
+            segments: const [
+              ButtonSegment(value: TastaturModus.zeichen, label: Text('Zeichen uebersetzen')),
+              ButtonSegment(value: TastaturModus.direkt, label: Text('Tasten direkt')),
+            ],
+            selected: {t.modus},
+            onSelectionChanged: (m) => t.setzen(modus: m.first),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            t.modus == TastaturModus.zeichen
+                ? 'Was du tippst, kommt im Computer so an — egal welche Tastatur du hast.'
+                : 'Jede Taste geht 1:1. Nur richtig, wenn deine Tastatur dieselbe Belegung hat wie der Computer.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Belegung des Computers'),
+            subtitle: Text(t.belegung.name),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () async {
+              final b = await _belegungWaehlen(t.belegung);
+              if (b != null) await t.setzen(belegung: b);
+            },
+          ),
+          if (Platform.isMacOS) ...[
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Cmd wie Strg'),
+              subtitle: const Text('Cmd+C, Cmd+V … werden im Computer zu Strg+C, Strg+V'),
+              value: t.cmdAlsStrg,
+              onChanged: (v) => t.setzen(cmdAlsStrg: v),
+            ),
+            if (t.modus == TastaturModus.direkt)
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Mac-Tastatur mit § links oben (ISO)'),
+                subtitle: const Text('Tauscht § und < wie bei einer PC-Tastatur'),
+                value: t.macIsoTausch,
+                onChanged: (v) => t.setzen(macIsoTausch: v),
+              ),
+          ],
+        ]),
+      ),
+    );
+  }
+
+  Future<GastBelegung?> _belegungWaehlen(GastBelegung aktuell) => showDialog<GastBelegung>(
+        context: context,
+        builder: (context) {
+          var suche = '';
+          return StatefulBuilder(builder: (context, neu) {
+            final q = suche.toLowerCase();
+            final liste = alleBelegungen
+                .where((b) => q.isEmpty || b.name.toLowerCase().contains(q) || b.kennung.contains(q))
+                .toList();
+            return AlertDialog(
+              title: const Text('Belegung des Computers'),
+              content: SizedBox(
+                width: 360,
+                height: 420,
+                child: Column(children: [
+                  TextField(
+                    autofocus: true,
+                    decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Suchen'),
+                    onChanged: (v) => neu(() => suche = v),
+                  ),
+                  Expanded(
+                    child: ListView(children: [
+                      for (final b in liste)
+                        ListTile(
+                          title: Text(b.name),
+                          subtitle: Text(b.kennung),
+                          trailing: b.kennung == aktuell.kennung ? const Icon(Icons.check) : null,
+                          onTap: () => Navigator.pop(context, b),
+                        ),
+                    ]),
+                  ),
+                ]),
+              ),
+            );
+          });
+        },
+      );
+
   void _strgAltEntf() {
     for (final sc in strgAltEntf) {
       _spice.taste(sc, 1);
@@ -239,11 +339,16 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
             )
           else
             IconButton(tooltip: 'USB-Geraete', icon: const Icon(Icons.usb), onPressed: _usbMenue),
+          IconButton(tooltip: 'Tastatur', icon: const Icon(Icons.keyboard_alt_outlined), onPressed: _tastaturMenue),
           IconButton(tooltip: 'Strg+Alt+Entf senden', icon: const Icon(Icons.keyboard), onPressed: _strgAltEntf),
         ],
       ),
       body: Stack(children: [
-        const Positioned.fill(child: SpiceBildschirm()),
+        Positioned.fill(
+          child: SpiceBildschirm(
+            hinweis: (t) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(t))),
+          ),
+        ),
         if (_stand != _Stand.verbunden)
           Positioned.fill(
             child: ColoredBox(

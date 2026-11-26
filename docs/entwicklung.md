@@ -21,6 +21,16 @@ flutter run -d macos --dart-define=RW_NATIVE_DIR=$PWD/native
 
 Weitere Ziele: `native/rwtunnel/bauen.sh android|ios|linux|windows`.
 
+## Tastaturbelegungen der Gaeste
+
+`lib/spice/belegungen.g.dart` wird aus xkeyboard-config erzeugt (MacPorts:
+`xkeyboard-config`, `libxkbcommon` mit `xkbcli`, `xorg-libX11` fuer
+keysymdef.h und Compose):
+
+```bash
+python3 tool/belegungen_erzeugen.py      # Liste der Belegungen oben im Skript
+```
+
 ## Testen ohne Hausnetz
 
 ```bash

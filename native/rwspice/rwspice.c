@@ -826,7 +826,7 @@ void rw_spice_trennen(void) { im_kontext(trennen, g_new0(char, 1)); }
 /* ── Eingaben ────────────────────────────────────────────────────────── */
 
 typedef struct { int art; int a, b, c; } Eingabe;
-enum { E_POS, E_BEW, E_TASTE_MAUS, E_TASTE, E_GROESSE };
+enum { E_POS, E_BEW, E_TASTE_MAUS, E_TASTE, E_GROESSE, E_CAPS_AUS };
 
 static gboolean eingabe(gpointer p) {
     Eingabe *e = p;
@@ -847,6 +847,18 @@ static gboolean eingabe(gpointer p) {
         if (e->b) spice_inputs_channel_key_press(eingabekanal, (guint)e->a);
         else spice_inputs_channel_key_release(eingabekanal, (guint)e->a);
         break;
+    case E_CAPS_AUS:
+        /* Zeichenmodus: die App schickt fertige Zeichen samt Shift; ein
+         * eingeschaltetes Feststellen im Gast wuerde sie umdrehen. */
+        if (eingabekanal) {
+            guint mods = 0;
+            g_object_get(eingabekanal, "key-modifiers", &mods, NULL);
+            if (mods & SPICE_INPUTS_CAPS_LOCK) {
+                spice_inputs_channel_set_key_locks(eingabekanal, mods & ~SPICE_INPUTS_CAPS_LOCK);
+                log_zeile("tastatur", "Feststelltaste im Gast ausgeschaltet");
+            }
+        }
+        break;
     case E_GROESSE:
         if (hauptkanal) {
             spice_main_channel_update_display_enabled(hauptkanal, 0, TRUE, FALSE);
@@ -865,6 +877,7 @@ static void eingabe_schicken(int art, int a, int b, int c) {
 
 void rw_spice_maus_position(int32_t x, int32_t y, int32_t tasten) { eingabe_schicken(E_POS, x, y, tasten); }
 void rw_spice_maus_bewegung(int32_t dx, int32_t dy, int32_t tasten) { eingabe_schicken(E_BEW, dx, dy, tasten); }
+void rw_spice_feststell_aus(void) { eingabe_schicken(E_CAPS_AUS, 0, 0, 0); }
 void rw_spice_maus_taste(int32_t taste, int32_t gedrueckt, int32_t tasten) { eingabe_schicken(E_TASTE_MAUS, taste, gedrueckt, tasten); }
 void rw_spice_taste(int32_t scancode, int32_t gedrueckt) { eingabe_schicken(E_TASTE, scancode, gedrueckt, 0); }
 void rw_spice_bildschirm_groesse(int32_t breite, int32_t hoehe) {

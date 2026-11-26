@@ -31,7 +31,7 @@
 extern "C" {
 #endif
 
-#define RW_SPICE_ABI 3
+#define RW_SPICE_ABI 4
 
 /* Kanalarten fuer RW_E_KANAL: was der Computer anbietet (Ton nur mit
  * audio0 driver=spice, USB nur mit usbN: spice in Proxmox). */
@@ -94,6 +94,8 @@ RW_EXPORT void rw_spice_maus_bewegung(int32_t dx, int32_t dy, int32_t tasten);
 RW_EXPORT void rw_spice_maus_taste(int32_t taste, int32_t gedrueckt, int32_t tasten);
 /* PC-Scancode Satz 1; erweiterte Tasten (E0) als 0x100 | code. */
 RW_EXPORT void rw_spice_taste(int32_t scancode, int32_t gedrueckt);
+/* Feststelltaste im Gast ausschalten, falls an (Zeichenmodus). */
+RW_EXPORT void rw_spice_feststell_aus(void);
 /* Bitte an den Gast, die Aufloesung anzupassen (braucht den spice-vdagent). */
 RW_EXPORT void rw_spice_bildschirm_groesse(int32_t breite, int32_t hoehe);
 
