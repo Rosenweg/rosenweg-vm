@@ -1,48 +1,49 @@
 # Rosenweg Virtuelle Computer
 
-Eine App für Windows, macOS, Linux, Android und iOS: anmelden mit dem
-Rosenweg-Konto, die eigenen virtuellen Computer aus dem Proxmox-Cluster sehen,
-antippen, Bildschirm (SPICE) in der App. Ausser Haus baut die App selbst eine
-WireGuard-Verbindung ins Hausnetz auf; im Haus geht sie direkt.
+Eine App für Windows, macOS, Linux, Android und iOS: einmal mit dem
+Rosenweg-Konto anmelden, die eigenen virtuellen Computer aus dem
+Proxmox-Cluster sehen, antippen, Bildschirm (SPICE) mit Ton und USB in der App.
 
 Ersetzt später auf den Stationen das Python/GTK-Programm „Maschinen“
 (`os-stationen/roles/desktop/files/vm-konsolen.py`).
 
 ```
-Start ─► Proxmox direkt erreichbar? ── ja ─► „Im Haus“
-              │ nein
+Start ─► Rosenweg-Konto (Authentik rosenweg-apps, PKCE)
+         still, wenn die letzte Browser-Anmeldung ≤ 30 Tage her ist
               ▼
-        Rosenweg-Konto (Authentik rosenweg-apps, PKCE, Refresh-Token im Schlüsselbund)
+         POST /api/apps/tunnel (Haupt-API, nur öffentlicher Schlüssel)
               ▼
-        POST /api/apps/tunnel (nur öffentlicher Schlüssel) ─► wg-control-Peer
+         WireGuard im Prozess der App ──► vm-gateway (eigener CT)
+         im Haus: LAN-Endpunkt · unterwegs: öffentlicher Endpunkt
               ▼
-        WireGuard im Prozess (wireguard-go + Netzstapel), lokaler Proxy 127.0.0.1
+         Gateway prüft Token + Gerät, fragt Proxmox mit eigenem Token,
+         gibt nur, was Proxmox <person>@authentik erlaubt
               ▼
-Proxmox-Anmeldung (OpenID-Realm „authentik“, Browser) ─► Liste „Meine Computer“
+         Liste „Meine Computer“ ─► SPICE durch den Gateway ─► pve:3128
               ▼
-        spiceproxy ─► librwspice (spice-client-glib) ─► Bild, Maus, Tastatur, Ton, USB
+         librwspice (spice-client-glib) ─► Bild, Maus, Tastatur, Ton, USB
+App zu ─► Peer abgemeldet (Schlüssel ungültig); Absturz ─► Gateway räumt nach 3–5 Min auf
 ```
 
 ## Aufbau
 
 | Ordner | Was | Sprache |
 |---|---|---|
-| `lib/` | App: Ablauf, Oberfläche, Anmeldung, Proxmox, FFI | Dart/Flutter |
+| `lib/` | App: Ablauf, Oberfläche, Anmeldung, Gateway-Client, FFI | Dart/Flutter |
 | `native/rwspice/` | dünne C-Schicht über spice-client-glib (Bild, Eingaben, Ton über miniaudio, USB) | C |
-| `native/rwtunnel/` | WireGuard im Prozess + lokaler CONNECT-Proxy | Go |
+| `native/rwtunnel/` | WireGuard im Prozess, lokaler CONNECT-Proxy und Weiterleitung | Go |
+| `gateway/` | vm-gateway: Tunnel-Ende, Rechteprüfung, Proxmox, SPICE-Weiterreichung; Unit, Setup | Go |
 | `integration_test/` | Ende-zu-Ende gegen einen lokalen SPICE-Testserver | Dart |
-| `docs/` | Entscheide, Plattformen, Authentik, Entwicklung | |
+| `.github/workflows/` | Linux-Bau auf dem eigenen Runner | |
+| `docs/` | Entscheide, Plattformen, Einrichtung, Entwicklung, CI | |
 
 Mehr: [docs/architektur.md](docs/architektur.md),
+[gateway/README.md](gateway/README.md),
 [docs/plattformen.md](docs/plattformen.md),
 [docs/authentik-und-server.md](docs/authentik-und-server.md),
-[docs/entwicklung.md](docs/entwicklung.md).
+[docs/entwicklung.md](docs/entwicklung.md), [docs/ci.md](docs/ci.md).
 
-## Stand (25.11.2026)
+## Lizenz
 
-- macOS (Entwicklungsziel): Liste → Tipp → SPICE-Bild in der App läuft gegen
-  einen lokalen spice-server; Ton-Wiedergabe öffnet CoreAudio; Tunnel und
-  Proxy-Kette getestet. Anmeldung und echte Proxmox-Liste sind gebaut, aber
-  noch nicht gegen das Haus ausprobiert (braucht die Einträge in Authentik).
-- Linux, Windows, Android, iOS: Projekt angelegt, Tunnel-Bibliothek baut für
-  Android und iOS; spice-glib für diese Ziele siehe docs/plattformen.md.
+GPL-3.0-or-later, siehe [LICENSE](LICENSE). Fremdbibliotheken (spice-glib
+und GLib unter LGPL, dynamisch gelinkt) in [LIZENZEN.md](LIZENZEN.md).

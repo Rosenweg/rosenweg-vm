@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // C-Schnittstelle fuer dart:ffi.
 //
 // Alles geht als JSON-Text hin und her: vier Funktionen, keine Strukturen,
@@ -86,6 +88,37 @@ func rwt_zustand() *C.char {
 		return fehler(err)
 	}
 	return antwort(z)
+}
+
+// rwt_weiterleitung oeffnet einen lokalen Port zu einem freigegebenen Ziel.
+//
+//export rwt_weiterleitung
+func rwt_weiterleitung(ziel *C.char) *C.char {
+	mu.Lock()
+	defer mu.Unlock()
+	if aktiv == nil {
+		return fehler(tunnel.ErrKeinTunnel)
+	}
+	port, err := aktiv.Weiterleiten(C.GoString(ziel))
+	if err != nil {
+		return fehler(err)
+	}
+	return antwort(map[string]int{"port": port})
+}
+
+// rwt_endpunkt wechselt den Endpunkt im laufenden Tunnel (Roaming).
+//
+//export rwt_endpunkt
+func rwt_endpunkt(ep *C.char) *C.char {
+	mu.Lock()
+	defer mu.Unlock()
+	if aktiv == nil {
+		return fehler(tunnel.ErrKeinTunnel)
+	}
+	if err := aktiv.EndpunktSetzen(C.GoString(ep)); err != nil {
+		return fehler(err)
+	}
+	return antwort(map[string]bool{"ok": true})
 }
 
 //export rwt_stop

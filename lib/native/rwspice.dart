@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
@@ -96,7 +97,7 @@ class RwSpice {
 
   Stream<SpiceEreignis> get ereignisse => _ereignisse.stream;
 
-  /// Verbindet mit den Angaben aus spiceproxy (siehe Proxmox.spice()).
+  /// Verbindet mit den Angaben aus spiceproxy (siehe Gateway.spice()).
   void verbinden({
     required String host,
     int port = 0,

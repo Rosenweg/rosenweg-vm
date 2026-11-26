@@ -51,3 +51,4 @@ app.*.map.json
 /.werkzeuge/
 # Gebaute native Bibliotheken
 /native/*/build/
+/gateway/build/

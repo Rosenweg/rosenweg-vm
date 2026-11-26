@@ -1,61 +1,80 @@
 # Was ausserhalb der App eingerichtet werden muss
 
-Nichts davon ist gemacht — die App wurde ohne Änderungen an Servern gebaut.
+Nichts davon ist gemacht — App, Gateway und API-Änderung wurden ohne Eingriff
+an Servern gebaut.
 
 ## Authentik
 
-1. **Anwendung „rosenweg-apps“** (öffentlicher Client, PKCE; schon da für
-   commons-rosenweg und Rosenweg Telefon) → Anbieter → Weiterleitungs-URIs
-   ergänzen:
-   - Modus **Regex**: `^http://localhost:[0-9]+/anmeldung$` (Desktop: Linux,
-     Windows, macOS)
-   - Modus **Strikt**: `ch.rosenweg4303.vm:/anmeldung` (Android, iOS; erst
-     nötig, wenn die Telefon-Anmeldung gebaut ist)
-   - Bereiche wie bisher: `openid email profile offline_access`. Prüfen, dass
-     `offline_access` ein Refresh-Token ausgibt (die anderen Apps nutzen es).
-2. **Anbieter „Proxmox VE“** → Weiterleitungs-URIs:
-   - Regex `^http://localhost:[0-9]+/?$` — laut os-stationen
-     `docs/konfiguration.md` schon für „Maschinen“ vorgesehen; bitte
-     nachsehen, ob er wirklich eingetragen ist.
-   - später für Telefone: strikt `ch.rosenweg4303.vm:/proxmox`.
+**Anwendung „rosenweg-apps“** (öffentlicher Client, PKCE; schon da für
+commons-rosenweg und Rosenweg Telefon) → Anbieter:
+- Weiterleitungs-URIs ergänzen:
+  - Modus **Regex**: `^http://localhost:[0-9]+/anmeldung$` (Linux, Windows, macOS)
+  - Modus **Strikt**: `ch.rosenweg4303.vm:/anmeldung` (Android, iOS; erst nötig,
+    wenn die Telefon-Anmeldung gebaut ist)
+- Bereiche wie bisher: `openid email profile offline_access`.
+- **Gültigkeit des Refresh-Tokens ≥ 30 Tage** (Anbieter → „Refresh Token
+  validity“, z. B. `days=31`). Die App fragt nach 30 Tagen selbst wieder
+  über den Browser; läuft das Token vorher ab, kommt die Frage früher.
+- Der Claim `preferred_username` muss dem Benutzernamen im Proxmox-Realm
+  `authentik` entsprechen (`joerg.herrmann` ↔ `joerg.herrmann@authentik`).
+  Sonst im Gateway `PVE_BENUTZER_CLAIM` anpassen.
+
+Der Anbieter „Proxmox VE“ braucht für die App **nichts Neues** mehr: es gibt
+keine Proxmox-Anmeldung im Browser.
+
+## vm-gateway (neuer CT)
+
+Siehe [gateway/README.md](../gateway/README.md), Abschnitt „Einrichten“:
+- CT anlegen (Debian 13, unprivilegiert, LAN-Adresse im Servernetz)
+- `setup.sh`, `/etc/vm-gateway/env` ausfüllen
+- Proxmox: Benutzer `vm-gateway@pve`, Rolle `VMGateway` (`VM.Audit`,
+  `VM.Console`, `VM.PowerMgmt` auf `/vms`; `Sys.Audit` auf `/access`), Token
+  `vm-gateway@pve!app` mit Rechte-Trennung. **Prüfen**, ob `spiceproxy` mit
+  dem Token ein brauchbares Ticket gibt.
+- Router: UDP **51831** von `kooperation.rosenweg4303.ch` auf den CT.
+- Firewall: hinein nur 51831/udp (alle) und 8080/tcp (nur CT 128);
+  hinaus nur pve1–3:8006/3128, Authentik 443, DNS.
+
+## Interner DNS (UniFi-Gateway 100.64.2.1)
+
+Für die Erkennung „im Haus“: TXT-Eintrag **`location.rosenweg4303.ch`** mit
+dem Wert **`Rosenweg GBT`** (genau so, Gross-/Kleinschreibung zählt), **nur
+im internen DNS**, nicht bei Cloudflare. In UniFi: Einstellungen → Routing →
+DNS → Eintrag vom Typ TXT. Prüfen aus einem Hausnetz:
+`dig +short TXT location.rosenweg4303.ch` → `"Rosenweg GBT"`; von aussen
+darf nichts kommen. (Am 26.11.2026 lieferte der Resolver im Netz des
+Entwicklungs-Macs den Eintrag bereits.)
 
 ## Haupt-API (Website)
 
-Branch `vm-app-tunnel` im Worktree `/Users/stefan/Documents/Website-vm-app-tunnel`
-(von `origin/main`, committet, nicht gepusht):
-
-- `POST /api/apps/tunnel` `{geraet, geraet_name, schluessel}` → `{tunnel:{peer, vlan, adresse, config}}`
-- `DELETE /api/apps/tunnel/:geraet`
-- Anmeldung: Bearer-Token von `rosenweg-apps`, geprüft über Authentik
-  `userinfo` plus `aud/azp == rosenweg-apps` (userinfo allein nähme Tokens
-  jeder Authentik-Anwendung). Deaktivierte Konten und fremde
-  `authentik_sub` werden abgewiesen wie beim Browser-Login.
-- Grenzen: 10/Std., höchstens 5 Geräte je Konto (`docs/sicherheit.md`).
-- VLAN = Wohnung der Person (wie Laptop-Stationen), kein Technik-VLAN.
-- Keine neue Umgebungsvariable nötig (`ROSENWEG_APPS_CLIENT_ID` optional).
-- Ausrollen wie üblich per Skript.
+Branch `vm-app-tunnel` (PR offen, nicht gemergt):
+- `POST /api/apps/tunnel` `{geraet, geraet_name, schluessel}` →
+  `{tunnel:{config, adresse, gateway, endpoint_intern}}`
+- `DELETE /api/apps/tunnel/:geraet` (Rückfallweg)
+- Neue Variablen in `/opt/rosenweg-core/.env`:
+  `VM_GATEWAY_URL=http://<CT-Adresse>:8080`,
+  `VM_GATEWAY_TOKEN=<GW_STEUER_TOKEN>`.
 
 ## wg-control
 
-Keine Änderung nötig: `POST /peers` nimmt schon `public_key` und
-`allowed_ips` (seit den Laptop-Stationen). Zu prüfen:
-- Erreicht ein Peer im **Wohnungs-VLAN** `pve1..3:8006` und `:3128`?
-  (Firewall/Routing zwischen Wohnungs-VLAN und Proxmox-Netz.)
-- Antwortet der DNS `100.64.2.1` durch den Tunnel?
+Keine Änderung. Die App nutzt wg-control nicht mehr.
 
 ## Proxmox (je virtuellem Computer)
 
 - Bildschirm: Anzeige **SPICE** (`vga: qxl`), sonst „no spice port“.
 - Ton: `audio0: device=ich9-intel-hda,driver=spice`.
-- USB durchreichen: `usb0: spice` (je weiterreichbares Gerät ein Eintrag,
-  `usb1: spice` …).
+- USB durchreichen: `usb0: spice` (je weiterreichbares Gerät ein Eintrag).
 - Absolute Maus und Grösse anpassen: im Gast `spice-vdagent` (Linux) bzw.
-  „SPICE Guest Tools“ (Windows); QEMU-Gastagent an.
-- Rechte wie heute: `VM.Console` auf den Computer (für spiceproxy),
-  `VM.PowerMgmt` falls „einschalten“ erlaubt sein soll.
+  „SPICE Guest Tools“ (Windows).
+- Rechte der Person wie heute: `VM.Console` (Bildschirm), `VM.PowerMgmt`
+  (Einschalten), `VM.Audit` (nur in der Liste sehen).
+
+## GitHub
+
+- Repo `rosenweg-vm` in die Runner-Gruppe `rosenweg-privat` aufnehmen
+  (docs/ci.md).
 
 ## Stationen (später)
 
 Rolle `desktop`: `85-vm-konsolen.sh` durch das Paket dieser App ersetzen,
-udev-Regel für USB (`uaccess`), Menüeintrag-Name in `60-programme`
-mitziehen.
+udev-Regel für USB (`uaccess`), Menüeintrag-Name in `60-programme` mitziehen.

@@ -11,7 +11,8 @@ Stand 25.11.2026. Aufwand grob in Personentagen (PT), ohne Store-Verfahren.
 | Ton | PipeWire/Pulse/ALSA | WASAPI | ✓ CoreAudio (Wiedergabe getestet) | AAudio/OpenSL | CoreAudio + AVAudioSession |
 | Mikrofon | keine Rechte | Datenschutz-Einstellung | Erlaubnis-Dialog | RECORD_AUDIO | Erlaubnis-Dialog |
 | USB | ja (Rechte nötig) | ja (UsbDk-Treiber) | eingeschränkt | ja (Android-USB-Host) | **nein** |
-| Anmeldung | localhost | localhost | localhost | eigenes Schema | eigenes Schema |
+| Anmeldung (einmal, 30 Tage) | localhost | localhost | localhost | eigenes Schema | eigenes Schema |
+| DNS-Server für „im Haus“ | resolv.conf | PowerShell/ipconfig | resolv.conf/scutil | LinkProperties (Kanal) | offen (libresolv) |
 | Stand | nicht gebaut (kein Linux hier) | nicht gebaut | **läuft** | Tunnel baut | Tunnel baut |
 
 ## Linux (zuerst, Stationen; Debian 13)
@@ -25,8 +26,8 @@ Stand 25.11.2026. Aufwand grob in Personentagen (PT), ohne Store-Verfahren.
   Debian-Paket `spice-client-glib-usb-acl-helper` (polkit fragt bzw. erlaubt
   aktiven Sitzungen) oder eine udev-Regel in der Stationsrolle, die der
   angemeldeten Sitzung (`uaccess`) die Geräte gibt. Auf Stationen: Regel.
-- **Tunnel:** auf Stationen im Haus nicht nötig; Laptop-Stationen haben ihren
-  eigenen Systemtunnel und werden als „im Haus“ erkannt.
+- **Tunnel:** auch im Haus, dann zum LAN-Endpunkt des Gateways (kein
+  Umweg ins Internet); ohne Rechte, im Prozess.
 - **Einbindung:** `linux/CMakeLists.txt` um `install(FILES librwspice.so
   librwtunnel.so DESTINATION lib)` ergänzen; Auslieferung als .deb mit
   `Depends: libspice-client-glib-2.0-8`. Rolle `desktop` ersetzt dann
@@ -82,8 +83,8 @@ Stand 25.11.2026. Aufwand grob in Personentagen (PT), ohne Store-Verfahren.
   („Gerät aus Deskriptor“), wie aSPICE sie hat — vor dem Bau dort prüfen.
 - **Tunnel:** ✓ `librwtunnel.so` (arm64-v8a, x86_64) gebaut. Kein VpnService,
   kein VPN-Dialog; der Tunnel lebt nur, solange die App läuft.
-- **Anmeldung:** Custom Tab + Schema `ch.rosenweg4303.vm:/anmeldung` bzw.
-  `:/proxmox` (z. B. mit `flutter_web_auth_2`).
+- **Anmeldung:** Custom Tab + Schema `ch.rosenweg4303.vm:/anmeldung`
+  (z. B. mit `flutter_web_auth_2`); keine zweite Anmeldung für Proxmox.
 - **Aufwand:** 8–15 PT Stapel, 3–5 PT Anmeldung/USB/Erlaubnisse/Touch-Bedienung.
 
 ## iOS / iPadOS (zuletzt)

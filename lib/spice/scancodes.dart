@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import 'package:flutter/services.dart';
 
 /// USB-HID-Nutzungen (wie Flutter sie in PhysicalKeyboardKey liefert) auf

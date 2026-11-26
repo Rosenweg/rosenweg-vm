@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*
  * rwspice — duenne C-Schicht zwischen spice-client-glib und der Flutter-App.
  *

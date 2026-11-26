@@ -1,10 +1,11 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 
 import '../app_zustand.dart';
 import '../native/rwspice.dart';
-import '../proxmox/proxmox.dart';
+import '../gateway/gateway.dart';
 import '../spice/bildschirm.dart';
 import '../spice/scancodes.dart';
 
@@ -50,12 +51,14 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
         _spice.verbinden(host: teile[0], port: int.parse(teile[1]));
       } else {
         // Das Ticket gilt nur kurz: fuer jede Verbindung ein frisches holen.
-        final z = await widget.zustand.proxmox!.spice(widget.computer);
+        // Ticket ueber den Gateway; die Verbindung geht durch den Tunnel zu
+        // ihm (Port 3128), und er reicht sie zu Proxmox weiter.
+        final z = await widget.zustand.gateway!.spice(widget.computer);
         _spice.verbinden(
           host: z.host,
           tlsPort: z.tlsPort,
           passwort: z.passwort,
-          proxy: widget.zustand.netz.spiceProxy(z.proxy),
+          proxy: widget.zustand.netz.spiceProxy,
           ca: z.ca,
           hostSubject: z.hostSubject,
         );

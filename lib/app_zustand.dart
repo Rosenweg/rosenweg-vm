@@ -1,21 +1,22 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import 'package:flutter/foundation.dart';
 
 import 'anmeldung/rosenweg_konto.dart';
+import 'gateway/gateway.dart';
 import 'netz/netzlage.dart';
-import 'proxmox/proxmox.dart';
 
 enum Phase {
-  /// Netz wird geprueft.
+  /// Start: gespeicherte Anmeldung pruefen.
   pruefen,
 
-  /// Unterwegs und noch kein Rosenweg-Konto: Knopf "Anmelden" zeigen.
+  /// Keine (oder eine ueber 30 Tage alte) Anmeldung: Knopf "Anmelden".
   kontoNoetig,
 
-  /// Tunnel wird aufgebaut.
-  tunnel,
-
-  /// Anmeldeseite von Proxmox ist im Browser offen.
+  /// Anmeldeseite ist im Browser offen.
   anmelden,
+
+  /// Verbindung zum Haus wird aufgebaut.
+  tunnel,
 
   /// Liste steht.
   liste,
@@ -24,8 +25,8 @@ enum Phase {
   fehler,
 }
 
-/// Der ganze Ablauf an einer Stelle:
-///   Netz pruefen → (unterwegs: Konto + Tunnel) → Proxmox-Anmeldung → Liste
+/// Der ganze Ablauf an einer Stelle — EINE Anmeldung fuer alles:
+///   Rosenweg-Konto (still, wenn <= 30 Tage) → Tunnel zum vm-gateway → Liste
 class AppZustand extends ChangeNotifier {
   AppZustand() : konto = RosenwegKonto() {
     netz = Netzlage(konto)..addListener(notifyListeners);
@@ -33,14 +34,15 @@ class AppZustand extends ChangeNotifier {
 
   final RosenwegKonto konto;
   late final Netzlage netz;
-  Proxmox? proxmox;
 
   Phase phase = Phase.pruefen;
   String? fehler;
   List<Computer> computer = const [];
 
+  Gateway? get gateway => netz.gateway;
+
   /// Nur fuer die Entwicklung: --dart-define=RW_TEST_SPICE=127.0.0.1:5912
-  /// zeigt zusaetzlich einen Testcomputer (z. B. spice-server/test-display-no-ssl),
+  /// zeigt einen Testcomputer (z. B. spice-server/test-display-no-ssl),
   /// ohne Anmeldung und ohne Hausnetz.
   static const testSpice = String.fromEnvironment('RW_TEST_SPICE');
 
@@ -55,75 +57,73 @@ class AppZustand extends ChangeNotifier {
       _setzen(Phase.pruefen);
       if (testSpice.isNotEmpty) {
         netz.lage = Lage.test;
-        computer = [Computer(vmid: 0, knoten: '', name: 'Testcomputer (lokal)', laeuft: true)];
+        computer = [Computer(vmid: 0, name: 'Testcomputer (lokal)', laeuft: true)];
         _setzen(Phase.liste);
         return;
       }
-      if (!await netz.direktPruefen()) {
-        if (!await konto.angemeldet) {
-          _setzen(Phase.kontoNoetig);
-          return;
-        }
-        _setzen(Phase.tunnel);
-        await netz.tunnelAufbauen();
+      if (!await konto.angemeldet) {
+        _setzen(Phase.kontoNoetig);
+        return;
       }
-      await _proxmoxAnmelden();
+      await _verbinden();
     } catch (e) {
       _setzen(Phase.fehler, '$e');
     }
   }
 
-  /// Knopf "Mit Rosenweg-Konto anmelden" (nur unterwegs noetig).
-  Future<void> kontoAnmelden() async {
+  /// Knopf "Mit Rosenweg-Konto anmelden".
+  Future<void> anmelden() async {
     try {
       _setzen(Phase.anmelden);
       await konto.anmelden();
-      _setzen(Phase.tunnel);
-      await netz.tunnelAufbauen();
-      await _proxmoxAnmelden();
+      await _verbinden();
     } catch (e) {
       _setzen(Phase.fehler, '$e');
     }
   }
 
-  Future<void> _proxmoxAnmelden() async {
-    _setzen(Phase.anmelden);
-    final p = Proxmox(netz.host!, proxy: netz.proxyFuerHttp);
-    await p.anmelden();
-    proxmox = p;
+  Future<void> _verbinden() async {
+    _setzen(Phase.tunnel);
+    await netz.aufbauen();
     await aktualisieren();
   }
 
   Future<void> aktualisieren() async {
-    final p = proxmox;
-    if (p == null) return;
+    final g = gateway;
+    if (g == null) return;
     try {
-      await p.ticketErneuern();
-      computer = await p.computer();
+      computer = await g.computer();
       _setzen(Phase.liste);
+    } on GatewayFehler catch (e) {
+      if (e.status == 401) {
+        // Anmeldung abgelaufen oder widerrufen: ehrlich zurueck zum Knopf.
+        await netz.abbauen();
+        await konto.abmelden();
+        _setzen(Phase.kontoNoetig);
+        return;
+      }
+      _setzen(Phase.fehler, '$e');
     } catch (e) {
       _setzen(Phase.fehler, '$e');
     }
   }
 
   Future<void> einschalten(Computer c) async {
-    await proxmox?.einschalten(c);
-    // Proxmox meldet "running" erst nach ein paar Sekunden.
+    await gateway?.einschalten(c);
+    // Proxmox meldet "laeuft" erst nach ein paar Sekunden.
     await Future<void>.delayed(const Duration(seconds: 3));
     await aktualisieren();
   }
 
   Future<void> abmelden() async {
-    await netz.abbauen(peerLoeschen: true);
+    await netz.abbauen();
     await konto.abmelden();
-    proxmox = null;
     computer = const [];
     await starten();
   }
 
-  @override
-  void dispose() {
-    netz.abbauen();
-    super.dispose();
-  }
+  /// Beim Schliessen der App: Peer abmelden, damit der Tunnel-Schluessel
+  /// sofort ungueltig ist. Die Anmeldung (Refresh-Token) bleibt fuer den
+  /// naechsten Start.
+  Future<void> schliessen() => netz.abbauen();
 }

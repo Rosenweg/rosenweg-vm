@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import 'dart:async';
 import 'dart:io';
 
@@ -15,8 +16,8 @@ import 'package:url_launcher/url_launcher.dart';
 /// Kommt im naechsten Schritt (flutter_web_auth_2); siehe docs/plattformen.md.
 class BrowserAnmeldung {
   /// Startet einen Ruecksprung-Empfaenger und liefert dessen Adresse.
-  /// [pfad] ist z. B. "/anmeldung" (Authentik) oder "" (Proxmox: dessen
-  /// Eintrag in Authentik lautet ^http://localhost:[0-9]+/?$).
+  /// [pfad] ist "/anmeldung" (Eintrag in Authentik bei rosenweg-apps:
+  /// Regex ^http://localhost:[0-9]+/anmeldung$).
   static Future<Ruecksprung> oeffnen(String pfad) async {
     if (Platform.isAndroid || Platform.isIOS) {
       throw UnsupportedError('Anmeldung auf Telefonen folgt (eigenes Schema)');
