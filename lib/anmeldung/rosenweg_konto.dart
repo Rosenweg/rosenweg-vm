@@ -4,10 +4,10 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:crypto/crypto.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../konfig.dart';
 import 'browser_anmeldung.dart';
+import 'schluesselbund.dart';
 
 /// Anmeldung mit dem Rosenweg-Konto (Authentik "rosenweg-apps", PKCE).
 ///
@@ -19,22 +19,16 @@ import 'browser_anmeldung.dart';
 /// (Haupt-API) und alle Anfragen an den vm-gateway; der fragt Proxmox, was
 /// diese Person darf.
 class RosenwegKonto {
-  RosenwegKonto({FlutterSecureStorage? speicher})
-      : _speicher = speicher ??
-            const FlutterSecureStorage(
-              // Ohne den Data-Protection-Schluesselbund: der braucht eine
-              // signierte App mit Team-ID, was im Entwicklungsbau fehlt.
-              mOptions: MacOsOptions(usesDataProtectionKeychain: false),
-            );
+  RosenwegKonto({Schluesselbund? speicher}) : _speicher = speicher ?? Schluesselbund.i;
 
-  final FlutterSecureStorage _speicher;
+  final Schluesselbund _speicher;
   String? _zugang;
   DateTime _zugangBis = DateTime.fromMillisecondsSinceEpoch(0);
   String? name;
   String? email;
 
-  static const _rt = 'rosenweg_refresh_token';
-  static const _am = 'rosenweg_angemeldet_am';
+  static const _rt = 'refresh_token';
+  static const _am = 'angemeldet_am';
 
   /// Entscheid Stefan: beim Start still anmelden, wenn die letzte Anmeldung im
   /// Browser hoechstens 30 Tage her ist; danach wieder durch den Browser.
@@ -48,7 +42,7 @@ class RosenwegKonto {
   }
 
   Future<bool> get angemeldet async {
-    if (await _speicher.read(key: _rt) == null) return false;
+    if (await _speicher.lesen(_rt) == null) return false;
     if (await _zuAlt()) {
       await abmelden();
       return false;
@@ -57,7 +51,7 @@ class RosenwegKonto {
   }
 
   Future<bool> _zuAlt() async {
-    final am = DateTime.tryParse(await _speicher.read(key: _am) ?? '');
+    final am = DateTime.tryParse(await _speicher.lesen(_am) ?? '');
     return am == null || DateTime.now().difference(am) > hoechstensAlt;
   }
 
@@ -90,7 +84,7 @@ class RosenwegKonto {
     });
     if (j == null) throw AnmeldeFehler('Rosenweg-Anmeldung fehlgeschlagen');
     await _uebernehmen(j);
-    await _speicher.write(key: _am, value: DateTime.now().toUtc().toIso8601String());
+    await _speicher.setzen({_am: DateTime.now().toUtc().toIso8601String()});
     await _profil();
   }
 
@@ -99,7 +93,7 @@ class RosenwegKonto {
     if (_zugang != null && DateTime.now().isBefore(_zugangBis.subtract(const Duration(minutes: 1)))) {
       return _zugang;
     }
-    final rt = await _speicher.read(key: _rt);
+    final rt = await _speicher.lesen(_rt);
     if (rt == null) return null;
     if (await _zuAlt()) {
       await abmelden();
@@ -120,15 +114,14 @@ class RosenwegKonto {
     _zugang = null;
     _zugangBis = DateTime.fromMillisecondsSinceEpoch(0);
     name = email = null;
-    await _speicher.delete(key: _rt);
-    await _speicher.delete(key: _am);
+    await _speicher.setzen({_rt: null, _am: null});
   }
 
   Future<void> _uebernehmen(Map<String, dynamic> j) async {
     _zugang = j['access_token'] as String;
     _zugangBis = DateTime.now().add(Duration(seconds: (j['expires_in'] as num?)?.toInt() ?? 300));
     final rt = j['refresh_token'] as String?;
-    if (rt != null) await _speicher.write(key: _rt, value: rt);
+    if (rt != null) await _speicher.setzen({_rt: rt});
   }
 
   Future<void> _profil() async {

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../app_zustand.dart';
 import '../native/rwspice.dart';
+import '../protokoll.dart';
 import '../gateway/gateway.dart';
 import '../spice/bildschirm.dart';
 import '../spice/scancodes.dart';
@@ -64,7 +65,10 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
         );
       }
       _spice.ton(wiedergabe: _ton, mikrofon: _mikrofon);
-    } catch (e) {
+    } catch (e, s) {
+      Protokoll.schreiben('Bildschirm ${widget.computer.vmid} (${widget.computer.name}): Oeffnen fehlgeschlagen', e,
+          e is GatewayFehler ? null : s);
+      if (!mounted) return;
       setState(() {
         _stand = _Stand.getrennt;
         _meldung = '$e';
@@ -77,18 +81,27 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
     switch (e.art) {
       case SpiceEreignisArt.verbunden:
       case SpiceEreignisArt.bildGroesse:
+        if (_stand != _Stand.verbunden) Protokoll.schreiben('Bildschirm ${widget.computer.vmid}: verbunden');
         setState(() => _stand = _Stand.verbunden);
       case SpiceEreignisArt.getrennt:
         final grund = TrennGrund.values[e.a.clamp(0, TrennGrund.values.length - 1)];
+        // Ein zweites "getrennt" (Sitzung zu nach Kanalfehler) soll den
+        // ersten, genaueren Grund nicht ueberschreiben.
+        if (_stand == _Stand.getrennt && grund == TrennGrund.normal) return;
+        final technik = _spice.letzterFehler();
+        Protokoll.schreiben('Bildschirm ${widget.computer.vmid}: getrennt (${grund.name})'
+            '${technik.isNotEmpty ? ' — $technik' : ''}');
         setState(() {
           _stand = _Stand.getrennt;
-          _meldung = switch (grund) {
+          final text = switch (grund) {
             TrennGrund.normal => 'Die Verbindung wurde beendet.',
             TrennGrund.tls => 'Die Verbindung war nicht vertrauenswuerdig und wurde abgebrochen.',
             TrennGrund.anmeldung => 'Die Freigabe war abgelaufen.',
             TrennGrund.verbindung => 'Der Computer war nicht erreichbar.',
             TrennGrund.anderes => 'Die Verbindung ist abgebrochen.',
           };
+          // Technischer Grund sichtbar mit dazu, damit man ihn melden kann.
+          _meldung = technik.isNotEmpty && grund != TrennGrund.normal ? '$text\n\nTechnisch: $technik' : text;
         });
       case SpiceEreignisArt.mikrofon:
         setState(() => _gastNimmtAuf = e.a == 1);
