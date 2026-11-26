@@ -10,13 +10,22 @@ import 'bibliothek.dart';
 /// Alle Antworten sind JSON; siehe native/rwtunnel/capi/main.go.
 class RwTunnel {
   RwTunnel._(DynamicLibrary lib)
-      : _paar = lib.lookupFunction<Pointer<Utf8> Function(), Pointer<Utf8> Function()>('rwt_schluesselpaar'),
-        _start = lib.lookupFunction<Pointer<Utf8> Function(Pointer<Utf8>), Pointer<Utf8> Function(Pointer<Utf8>)>('rwt_start'),
-        _zustand = lib.lookupFunction<Pointer<Utf8> Function(), Pointer<Utf8> Function()>('rwt_zustand'),
-        _weiter = lib.lookupFunction<Pointer<Utf8> Function(Pointer<Utf8>), Pointer<Utf8> Function(Pointer<Utf8>)>('rwt_weiterleitung'),
-        _endpunkt = lib.lookupFunction<Pointer<Utf8> Function(Pointer<Utf8>), Pointer<Utf8> Function(Pointer<Utf8>)>('rwt_endpunkt'),
-        _stop = lib.lookupFunction<Void Function(), void Function()>('rwt_stop'),
-        _frei = lib.lookupFunction<Void Function(Pointer<Utf8>), void Function(Pointer<Utf8>)>('rwt_frei');
+    : _paar = lib.lookupFunction<Pointer<Utf8> Function(), Pointer<Utf8> Function()>('rwt_schluesselpaar'),
+      _start = lib.lookupFunction<Pointer<Utf8> Function(Pointer<Utf8>), Pointer<Utf8> Function(Pointer<Utf8>)>(
+        'rwt_start',
+      ),
+      _zustand = lib.lookupFunction<Pointer<Utf8> Function(), Pointer<Utf8> Function()>('rwt_zustand'),
+      _weiter = lib.lookupFunction<Pointer<Utf8> Function(Pointer<Utf8>), Pointer<Utf8> Function(Pointer<Utf8>)>(
+        'rwt_weiterleitung',
+      ),
+      _endpunkt = lib.lookupFunction<Pointer<Utf8> Function(Pointer<Utf8>), Pointer<Utf8> Function(Pointer<Utf8>)>(
+        'rwt_endpunkt',
+      ),
+      _stop = lib.lookupFunction<Void Function(), void Function()>('rwt_stop'),
+      _frei = lib.lookupFunction<Void Function(Pointer<Utf8>), void Function(Pointer<Utf8>)>('rwt_frei'),
+      _absturz = lib.lookupFunction<Pointer<Utf8> Function(Pointer<Utf8>), Pointer<Utf8> Function(Pointer<Utf8>)>(
+        'rwt_absturzdatei',
+      );
 
   static RwTunnel? _inst;
   static RwTunnel get i => _inst ??= RwTunnel._(bibliothekLaden('rwtunnel'));
@@ -28,6 +37,18 @@ class RwTunnel {
   final Pointer<Utf8> Function(Pointer<Utf8>) _endpunkt;
   final void Function() _stop;
   final void Function(Pointer<Utf8>) _frei;
+  final Pointer<Utf8> Function(Pointer<Utf8>) _absturz;
+
+  /// Nicht aufgefangene panics der Go-Laufzeit zusaetzlich in [pfad]
+  /// schreiben (die Laufzeit beendet den Prozess dann trotzdem).
+  void absturzdatei(String pfad) {
+    final z = pfad.toNativeUtf8();
+    try {
+      _lesen(_absturz(z));
+    } finally {
+      malloc.free(z);
+    }
+  }
 
   Map<String, dynamic> _lesen(Pointer<Utf8> p) {
     try {

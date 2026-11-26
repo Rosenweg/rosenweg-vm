@@ -6,6 +6,7 @@ import 'dart:io';
 
 import 'package:ffi/ffi.dart';
 
+import '../protokoll.dart';
 import 'bibliothek.dart';
 
 /// Ereignisse aus native/rwspice/rwspice.h (RW_E_*).
@@ -75,6 +76,20 @@ class RwSpice {
       final e = SpiceEreignisArt.aus(art);
       if (e != null) _ereignisse.add(SpiceEreignis(e, a, b));
     });
+    // Meldungen von spice-glib und Kanalfehler in die Logdatei der App;
+    // RW_SPICE_DEBUG=1 in der Umgebung schreibt auch die Debug-Ausgabe.
+    final log = Protokoll.pfad;
+    if (log != null) {
+      final p = log.toNativeUtf8();
+      try {
+        lib.lookupFunction<Void Function(Pointer<Utf8>, Int32), void Function(Pointer<Utf8>, int)>('rw_spice_logdatei')(
+            p, Platform.environment['RW_SPICE_DEBUG'] == '1' ? 1 : 0);
+      } catch (e) {
+        Protokoll.schreiben('rwspice ohne Logdatei (alte Bibliothek?)', e);
+      } finally {
+        malloc.free(p);
+      }
+    }
     // Linux: die GTK-Hauptschleife von Flutter dreht den GLib-Standardkontext
     // schon; ein zweiter Thread darauf waere ein Wettlauf. Sonst eigener Thread.
     _start(Platform.isLinux ? 0 : 1, _cb.nativeFunction);

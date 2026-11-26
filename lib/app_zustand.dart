@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'anmeldung/rosenweg_konto.dart';
 import 'gateway/gateway.dart';
 import 'netz/netzlage.dart';
+import 'protokoll.dart';
 
 enum Phase {
   /// Start: gespeicherte Anmeldung pruefen.
@@ -47,6 +48,7 @@ class AppZustand extends ChangeNotifier {
   static const testSpice = String.fromEnvironment('RW_TEST_SPICE');
 
   void _setzen(Phase p, [String? f]) {
+    if (p != phase || f != null) Protokoll.schreiben('Phase ${p.name}${f != null ? ' — $f' : ''}');
     phase = p;
     fehler = f;
     notifyListeners();
@@ -69,6 +71,13 @@ class AppZustand extends ChangeNotifier {
     } catch (e) {
       _setzen(Phase.fehler, '$e');
     }
+  }
+
+  /// Nicht aufgefangener Fehler (main.dart): sichtbar machen statt still
+  /// weiterlaufen oder enden. Den Pfad der Logdatei mit anzeigen.
+  void unerwartet(Object e) {
+    final p = Protokoll.pfad;
+    _setzen(Phase.fehler, '$e${p != null ? '\n\nEinzelheiten: $p' : ''}');
   }
 
   /// Knopf "Mit Rosenweg-Konto anmelden".

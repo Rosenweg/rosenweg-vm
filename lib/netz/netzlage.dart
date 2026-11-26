@@ -6,9 +6,9 @@ import 'dart:math';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../anmeldung/rosenweg_konto.dart';
+import '../anmeldung/schluesselbund.dart';
 import '../gateway/gateway.dart';
 import '../konfig.dart';
 import '../native/rwtunnel.dart';
@@ -41,7 +41,6 @@ class Netzlage extends ChangeNotifier {
   Timer? _waechter;
   String? _geraet;
 
-  static const _speicher = FlutterSecureStorage(mOptions: MacOsOptions(usesDataProtectionKeychain: false));
 
   String get beschreibung => switch (lage) {
         Lage.unbekannt => 'Verbindung wird aufgebaut …',
@@ -162,11 +161,11 @@ class Netzlage extends ChangeNotifier {
   }
 
   Future<String> _geraetKennung() async {
-    var g = await _speicher.read(key: 'rosenweg_geraet');
+    var g = await Schluesselbund.i.lesen('geraet');
     if (g == null) {
       final r = Random.secure();
       g = List.generate(16, (_) => r.nextInt(16).toRadixString(16)).join();
-      await _speicher.write(key: 'rosenweg_geraet', value: g);
+      await Schluesselbund.i.setzen({'geraet': g});
     }
     return g;
   }
