@@ -4,8 +4,9 @@ Eine App für Windows, macOS, Linux, Android und iOS: einmal mit dem
 Rosenweg-Konto anmelden, die eigenen virtuellen Computer aus dem
 Proxmox-Cluster sehen, antippen, Bildschirm (SPICE) mit Ton und USB in der App.
 
-Ersetzt später auf den Stationen das Python/GTK-Programm „Maschinen“
-(`os-stationen/roles/desktop/files/vm-konsolen.py`).
+Auf den Stationen ersetzt sie das Python/GTK-Programm „Maschinen“
+(`os-stationen/roles/desktop/files/vm-konsolen.py`): os-stationen spielt das
+Paket `rosenweg-vm` ein und lässt „Maschinen“ stehen, wenn das nicht geht.
 
 ```
 Start ─► Rosenweg-Konto (Authentik rosenweg-apps, PKCE)
@@ -25,6 +26,24 @@ Start ─► Rosenweg-Konto (Authentik rosenweg-apps, PKCE)
 App zu ─► Peer abgemeldet (Schlüssel ungültig); Absturz ─► Gateway räumt nach 3–5 Min auf
 ```
 
+## Installation und Stand
+
+| Plattform | Stand | Bezug |
+|---|---|---|
+| Linux (Debian 13, amd64) | Paket `rosenweg-vm` (.deb) | Stationen: über os-stationen; sonst [www.rosenweg4303.ch/apps](https://www.rosenweg4303.ch/apps) |
+| macOS (arm64, ab macOS 26) | DMG-Installer | [www.rosenweg4303.ch/apps](https://www.rosenweg4303.ch/apps) |
+| Windows, Android, iOS | noch nicht gebaut | Stand je Plattform in [docs/plattformen.md](docs/plattformen.md) |
+
+Logo: Turm, Weg und Rose mit einem Monitor als Zeichen, aus dem
+Logo-Baukasten von rosenweg-basis (`assets/logo/erzeugen.sh`).
+
+## Neue Version
+
+`version` in `pubspec.yaml` anheben, dann den Tag `v<version>` pushen
+(z. B. `v1.0.1`). `linux.yml` baut das .deb, `macos.yml` das DMG; beide
+kommen ins GitHub-Release und an www.rosenweg4303.ch/apps (Anmeldung per
+GitHub-OIDC, kein gespeichertes Geheimnis).
+
 ## Aufbau
 
 | Ordner | Was | Sprache |
@@ -34,7 +53,10 @@ App zu ─► Peer abgemeldet (Schlüssel ungültig); Absturz ─► Gateway rä
 | `native/rwtunnel/` | WireGuard im Prozess, lokaler CONNECT-Proxy und Weiterleitung | Go |
 | `gateway/` | vm-gateway: Tunnel-Ende, Rechteprüfung, Proxmox, SPICE-Weiterreichung; Unit, Setup | Go |
 | `integration_test/` | Ende-zu-Ende gegen einen lokalen SPICE-Testserver | Dart |
-| `.github/workflows/` | Linux-Bau auf dem eigenen Runner | |
+| `linux/paket/` | Debian-Paket `rosenweg-vm` (`bauen.sh`, Bau im Container) | Shell |
+| `macos/installer/` | Release-App und DMG (`bauen.sh`) | Shell/Python |
+| `assets/logo/` | Logo in allen Grössen, `erzeugen.sh` | SVG |
+| `.github/workflows/` | `linux.yml` (eigener Runner, .deb), `macos.yml` (GitHub-Runner, DMG, nur bei Tags oder von Hand) | |
 | `docs/` | Entscheide, Plattformen, Einrichtung, Entwicklung, CI | |
 
 Mehr: [docs/architektur.md](docs/architektur.md),
