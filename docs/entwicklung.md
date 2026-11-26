@@ -86,3 +86,36 @@ vm-gateway-CT, API-Branch `vm-app-tunnel` ausgerollt):
 `flutter run -d macos --dart-define=RW_NATIVE_DIR=$PWD/native`. Einmal
 „Mit Rosenweg-Konto anmelden“, danach die Liste — im Haus über den
 LAN-Endpunkt des Gateways, sonst über den öffentlichen.
+
+## Aufbau des Repos
+
+| Ordner | Was | Sprache |
+|---|---|---|
+| `lib/` | App: Ablauf, Oberfläche, Anmeldung, Gateway-Client, FFI | Dart/Flutter |
+| `native/rwspice/` | dünne C-Schicht über spice-client-glib (Bild, Eingaben, Ton über miniaudio, USB) | C |
+| `native/rwtunnel/` | WireGuard im Prozess, lokaler CONNECT-Proxy und Weiterleitung | Go |
+| `gateway/` | vm-gateway: Tunnel-Ende, Rechteprüfung, Proxmox, SPICE-Weiterreichung; Unit, Setup | Go |
+| `integration_test/` | Ende-zu-Ende gegen einen lokalen SPICE-Testserver | Dart |
+| `linux/paket/` | Debian-Paket `rosenweg-vm` (`bauen.sh`, Bau im Container) | Shell |
+| `macos/installer/` | Release-App und DMG (`bauen.sh`) | Shell/Python |
+| `assets/logo/` | Logo in allen Grössen, `erzeugen.sh` | SVG |
+| `.github/workflows/` | `linux.yml` (eigener Runner, .deb), `macos.yml` (GitHub-Runner, DMG, nur bei Tags oder von Hand) | |
+| `docs/` | Entscheide, Plattformen, Einrichtung, Entwicklung, CI | |
+
+Mehr: [docs/architektur.md](architektur.md),
+[gateway/README.md](../gateway/README.md),
+[docs/plattformen.md](plattformen.md),
+[docs/authentik-und-server.md](authentik-und-server.md),
+[docs/entwicklung.md](entwicklung.md), [docs/ci.md](ci.md).
+
+## Neue Version
+
+`version` in `pubspec.yaml` anheben, dann den Tag `v<version>` pushen
+(z. B. `v1.0.1`). `linux.yml` baut das .deb, `macos.yml` das DMG; beide
+kommen ins GitHub-Release und an www.rosenweg4303.ch/apps (Anmeldung per
+GitHub-OIDC, kein gespeichertes Geheimnis).
+
+## Logo
+
+Logo: Turm, Weg und Rose mit einem Monitor als Zeichen, aus dem
+Logo-Baukasten von rosenweg-basis (`assets/logo/erzeugen.sh`).

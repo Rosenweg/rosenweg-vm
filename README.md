@@ -1,69 +1,26 @@
-# Rosenweg Virtuelle Computer
+<p align="center"><img src="assets/logo/rosenweg-vm-512.png" width="96" alt="Logo"></p>
+<h1 align="center">Rosenweg Virtuelle Computer</h1>
+<p align="center">Die eigenen virtuellen Computer des Rosenwegs öffnen – mit Ton und USB, im Haus und unterwegs.</p>
+<p align="center"><a href="https://www.rosenweg4303.ch/apps">Herunterladen</a> · <a href="docs/anleitung.md">Anleitung</a> · <a href="docs/entwicklung.md">Für Entwickler</a></p>
 
-Eine App für Windows, macOS, Linux, Android und iOS: einmal mit dem
-Rosenweg-Konto anmelden, die eigenen virtuellen Computer aus dem
-Proxmox-Cluster sehen, antippen, Bildschirm (SPICE) mit Ton und USB in der App.
+## Was die App kann
 
-Auf den Stationen ersetzt sie das Python/GTK-Programm „Maschinen“
-(`os-stationen/roles/desktop/files/vm-konsolen.py`): os-stationen spielt das
-Paket `rosenweg-vm` ein und lässt „Maschinen“ stehen, wenn das nicht geht.
+- Einmal mit dem Rosenweg-Konto anmelden, danach 30 Tage ohne Nachfrage.
+- Zeigt nur die eigenen virtuellen Computer – antippen, fertig.
+- Bildschirm mit Ton, Maus, Tastatur und USB-Geräten direkt in der App.
+- Im Haus und unterwegs gleich, ohne separates VPN.
+- Ersetzt auf den Stationen das Programm „Maschinen“.
 
-```
-Start ─► Rosenweg-Konto (Authentik rosenweg-apps, PKCE)
-         still, wenn die letzte Browser-Anmeldung ≤ 30 Tage her ist
-              ▼
-         POST /api/apps/tunnel (Haupt-API, nur öffentlicher Schlüssel)
-              ▼
-         WireGuard im Prozess der App ──► vm-gateway (eigener CT)
-         im Haus: LAN-Endpunkt · unterwegs: öffentlicher Endpunkt
-              ▼
-         Gateway prüft Token + Gerät, fragt Proxmox mit eigenem Token,
-         gibt nur, was Proxmox <person>@authentik erlaubt
-              ▼
-         Liste „Meine Computer“ ─► SPICE durch den Gateway ─► pve:3128
-              ▼
-         librwspice (spice-client-glib) ─► Bild, Maus, Tastatur, Ton, USB
-App zu ─► Peer abgemeldet (Schlüssel ungültig); Absturz ─► Gateway räumt nach 3–5 Min auf
-```
+## Plattformen
 
-## Installation und Stand
+Linux (Debian-Paket) und macOS; Windows, Android und iOS folgen.
 
-| Plattform | Stand | Bezug |
-|---|---|---|
-| Linux (Debian 13, amd64) | Paket `rosenweg-vm` (.deb) | Stationen: über os-stationen; sonst [www.rosenweg4303.ch/apps](https://www.rosenweg4303.ch/apps) |
-| macOS (arm64, ab macOS 26) | DMG-Installer | [www.rosenweg4303.ch/apps](https://www.rosenweg4303.ch/apps) |
-| Windows, Android, iOS | noch nicht gebaut | Stand je Plattform in [docs/plattformen.md](docs/plattformen.md) |
+## Entwickeln
 
-Logo: Turm, Weg und Rose mit einem Monitor als Zeichen, aus dem
-Logo-Baukasten von rosenweg-basis (`assets/logo/erzeugen.sh`).
-
-## Neue Version
-
-`version` in `pubspec.yaml` anheben, dann den Tag `v<version>` pushen
-(z. B. `v1.0.1`). `linux.yml` baut das .deb, `macos.yml` das DMG; beide
-kommen ins GitHub-Release und an www.rosenweg4303.ch/apps (Anmeldung per
-GitHub-OIDC, kein gespeichertes Geheimnis).
-
-## Aufbau
-
-| Ordner | Was | Sprache |
-|---|---|---|
-| `lib/` | App: Ablauf, Oberfläche, Anmeldung, Gateway-Client, FFI | Dart/Flutter |
-| `native/rwspice/` | dünne C-Schicht über spice-client-glib (Bild, Eingaben, Ton über miniaudio, USB) | C |
-| `native/rwtunnel/` | WireGuard im Prozess, lokaler CONNECT-Proxy und Weiterleitung | Go |
-| `gateway/` | vm-gateway: Tunnel-Ende, Rechteprüfung, Proxmox, SPICE-Weiterreichung; Unit, Setup | Go |
-| `integration_test/` | Ende-zu-Ende gegen einen lokalen SPICE-Testserver | Dart |
-| `linux/paket/` | Debian-Paket `rosenweg-vm` (`bauen.sh`, Bau im Container) | Shell |
-| `macos/installer/` | Release-App und DMG (`bauen.sh`) | Shell/Python |
-| `assets/logo/` | Logo in allen Grössen, `erzeugen.sh` | SVG |
-| `.github/workflows/` | `linux.yml` (eigener Runner, .deb), `macos.yml` (GitHub-Runner, DMG, nur bei Tags oder von Hand) | |
-| `docs/` | Entscheide, Plattformen, Einrichtung, Entwicklung, CI | |
-
-Mehr: [docs/architektur.md](docs/architektur.md),
-[gateway/README.md](gateway/README.md),
-[docs/plattformen.md](docs/plattformen.md),
-[docs/authentik-und-server.md](docs/authentik-und-server.md),
-[docs/entwicklung.md](docs/entwicklung.md), [docs/ci.md](docs/ci.md).
+Flutter-App mit C-Schicht über spice-client-glib, WireGuard-Tunnel in Go und
+eigenem vm-gateway. Aufbau, Bau, Versionen und CI stehen in
+[docs/entwicklung.md](docs/entwicklung.md), die Entscheide in
+[docs/architektur.md](docs/architektur.md).
 
 ## Lizenz
 
