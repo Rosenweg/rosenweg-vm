@@ -26,6 +26,8 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Im Haus verbindet sich die App direkt mit dem Rosenweg-Netz statt über das Internet.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Damit der virtuelle Computer Ihr Mikrofon nutzen kann, wenn Sie es in der App einschalten.</string>
 	<key>UIApplicationSceneManifest</key>

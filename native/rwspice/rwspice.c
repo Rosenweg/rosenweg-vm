@@ -20,7 +20,11 @@
 #include <dlfcn.h>
 #endif
 #ifdef __APPLE__
+#include <TargetConditionals.h>
+#if !TARGET_OS_IPHONE
+#define RW_MACOS 1 /* macOS, nicht iOS/iPadOS (dort gibt es kein USB) */
 #include <libusb.h>
+#endif
 #endif
 #include <string.h>
 #include <stdio.h>
@@ -556,7 +560,7 @@ static char *usb_id(SpiceUsbDevice *d) {
  * erst anbieten. Gelesen werden nur die zwischengespeicherten Deskriptoren
  * (kein Oeffnen, kein Reset). Liefert die Klasse als Text oder NULL. */
 static const char *usb_mac_gesperrt(SpiceUsbDevice *d) {
-#ifdef __APPLE__
+#ifdef RW_MACOS
     libusb_device *ld = (libusb_device *)spice_usb_device_get_libusb_device(d);
     if (!ld) return NULL;
     struct libusb_device_descriptor dd;

@@ -3,6 +3,7 @@
 # Baut spice-client-glib samt Abhaengigkeiten fuer die Telefone.
 #
 #   native/spice-stapel/bauen.sh android <abi>     arm64-v8a | x86_64
+#   (iOS: native/spice-stapel/ios.sh)
 #
 # Danach: native/rwspice/bauen.sh android <abi> (nimmt Compiler und
 # pkg-config aus build/arbeit/android-<abi>/umgebung.sh).
@@ -32,13 +33,9 @@ HIER="$(cd "$(dirname "$0")" && pwd)"
 ziel="${1:-}"; abi="${2:-}"
 [ "$ziel" = android ] || { echo "Aufruf: $0 android <arm64-v8a|x86_64>" >&2; exit 2; }
 
-GST_VERSION=1.28.9
+# shellcheck source=versionen.sh
+. "$HIER/versionen.sh"
 GST_SHA256=04ca3f41c8fc7359c4f92f3705ffee0533890b1f5ea94a49509f1ede0d241a53
-SPICE_GTK=0.43;          SPICE_GTK_SHA256=cee26e5b2d22909f35b40a94398d1e863ca3962ee46494ca97aab206abc3203b
-SPICE_PROTOCOL=0.14.5;   SPICE_PROTOCOL_SHA256=baf58449f6e89d19f475899ad5fb9196fdc46c03cc53233f4e39cf2978f9cff7
-USBREDIR=0.15.0;         USBREDIR_SHA256=6dc2a380277688a068191245dac2ab7063a552999d8ac3ad8e841c10ff050961
-LIBUSB=1.0.30;           LIBUSB_SHA256=fea36f34f9156400209595e300840767ab1a385ede1dc7ee893015aea9c6dbaf
-JSON_GLIB=1.10.8;        JSON_GLIB_SHA256=55c5c141a564245b8f8fbe7698663c87a45a7333c2a2c56f06f811ab73b212dd
 API=24  # = minSdk der App
 
 case "$abi" in

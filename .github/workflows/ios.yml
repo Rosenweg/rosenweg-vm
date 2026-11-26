@@ -1,0 +1,136 @@
+# iOS/iPadOS-Bau ohne Signatur auf einem von GitHub gehosteten macOS-Runner.
+#
+# macOS-Minuten zaehlen bei privaten Repos zehnfach: nur bei Aenderungen an
+# iOS/nativen Teilen (Pfadfilter), von Hand oder bei einem Tag v*.
+#
+# Job "native": SPICE-Stapel (native/spice-stapel/ios.sh: GStreamer-
+# Binaerpaket fuer iOS + spice-protocol/spice-glib mit meson) ->
+# SpiceGlib.framework, rwtunnel (Go c-archive) + rwspice -> RwNative.framework.
+# Braucht keine Secrets.
+#
+# Job "app": flutter build ios --release --no-codesign, daraus eine
+# unsignierte .ipa (Payload/Runner.app). Installieren kann man die erst nach
+# dem Signieren (Apple Developer Program, siehe docs/plattformen.md). Braucht
+# BASIS_TOKEN (private Basis Rosenweg/rosenweg-basis). Nicht an /apps: /apps
+# kennt kein iOS, und ohne Signatur liesse sich die Datei nicht installieren.
+name: iOS
+
+on:
+  pull_request:
+    paths:
+      - 'ios/**'
+      - 'native/spice-stapel/**'
+      - 'native/rwspice/**'
+      - 'native/rwtunnel/**'
+      - 'lib/native/**'
+      - '.github/workflows/ios.yml'
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.27.4"
+  FLUTTER_VERSION: "3.47.5"
+
+jobs:
+  native:
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+
+      - name: Werkzeuge
+        run: |
+          brew install --quiet pkgconf glib >/dev/null || true
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install -q meson ninja pyparsing six
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+
+      - uses: actions/cache@v4
+        with:
+          path: native/spice-stapel/build/quellen
+          key: spice-stapel-ios-${{ hashFiles('native/spice-stapel/ios.sh', 'native/spice-stapel/versionen.sh') }}
+          restore-keys: spice-stapel-ios-
+
+      - name: SPICE-Stapel (SpiceGlib.framework)
+        run: native/spice-stapel/ios.sh
+
+      - name: rwtunnel und rwspice (RwNative.framework)
+        run: |
+          native/rwtunnel/bauen.sh ios
+          native/rwspice/bauen.sh ios
+
+      - name: Frameworks pruefen
+        run: |
+          set -euo pipefail
+          for f in build/ios-native/SpiceGlib.framework/SpiceGlib build/ios-native/RwNative.framework/RwNative; do
+            echo "== $f"; ls -la "$f"; lipo -info "$f"
+            otool -L "$f"
+            # nur System und die beiden eigenen Frameworks
+            fremd=$(otool -L "$f" | tail -n +2 | awk '{print $1}' \
+              | grep -vE '^(/usr/lib/|/System/Library/|@rpath/(SpiceGlib|RwNative)\.framework/)' || true)
+            [ -z "$fremd" ] || { echo "::error::$f braucht $fremd"; exit 1; }
+            vtool -show-build "$f" | grep -E 'platform|minos'
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-native
+          path: build/ios-native/
+          retention-days: 14
+
+  app:
+    needs: native
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ios-native
+          path: build/ios-native
+
+      - uses: ./.github/actions/basis-zugang
+        with:
+          token: ${{ secrets.BASIS_TOKEN }}
+          deploy-key: ${{ secrets.BASIS_DEPLOY_KEY }}
+
+      - name: App bauen (ohne Signatur)
+        run: |
+          set -euo pipefail
+          flutter config --no-analytics >/dev/null
+          flutter pub get --enforce-lockfile
+          flutter build ios --release --no-codesign
+          app=build/ios/iphoneos/Runner.app
+          for fw in SpiceGlib RwNative; do
+            [ -f "$app/Frameworks/$fw.framework/$fw" ] || { echo "::error::$fw.framework fehlt im App-Buendel"; exit 1; }
+          done
+          version=$(sed -n 's/^version: *\([^+ ]*\).*/\1/p' pubspec.yaml)
+          mkdir -p ausgabe/Payload
+          cp -R "$app" ausgabe/Payload/
+          (cd ausgabe && zip -qry "rosenweg-vm-$version-ios-unsigniert.ipa" Payload && rm -rf Payload)
+          ls -la ausgabe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rosenweg-vm-ios-unsigniert
+          path: ausgabe/*.ipa
+          retention-days: 14

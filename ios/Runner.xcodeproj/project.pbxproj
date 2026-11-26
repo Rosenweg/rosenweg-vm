@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		5A1C0D0E2F00000000000003 /* SpiceGlib.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 5A1C0D0E2F00000000000001 /* SpiceGlib.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		5A1C0D0E2F00000000000004 /* RwNative.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 5A1C0D0E2F00000000000002 /* RwNative.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */ = {isa = PBXBuildFile; fileRef = 1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */; };
 		331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C807B294A618700263BE5 /* RunnerTests.swift */; };
 		3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */ = {isa = PBXBuildFile; fileRef = 3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */; };
@@ -35,6 +37,8 @@
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
+				5A1C0D0E2F00000000000003 /* SpiceGlib.framework in Embed Frameworks */,
+				5A1C0D0E2F00000000000004 /* RwNative.framework in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -42,6 +46,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		5A1C0D0E2F00000000000001 /* SpiceGlib.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SpiceGlib.framework; path = "../build/ios-native/SpiceGlib.framework"; sourceTree = SOURCE_ROOT; };
+		5A1C0D0E2F00000000000002 /* RwNative.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = RwNative.framework; path = "../build/ios-native/RwNative.framework"; sourceTree = SOURCE_ROOT; };
 		1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GeneratedPluginRegistrant.h; sourceTree = "<group>"; };
 		1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GeneratedPluginRegistrant.m; sourceTree = "<group>"; };
 		331C807B294A618700263BE5 /* RunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerTests.swift; sourceTree = "<group>"; };
@@ -100,7 +106,17 @@
 				97C146F01CF9000F007C117D /* Runner */,
 				97C146EF1CF9000F007C117D /* Products */,
 				331C8082294A63A400263BE5 /* RunnerTests */,
+				5A1C0D0E2F00000000000005 /* Native */,
 			);
+			sourceTree = "<group>";
+		};
+		5A1C0D0E2F00000000000005 /* Native */ = {
+			isa = PBXGroup;
+			children = (
+				5A1C0D0E2F00000000000001 /* SpiceGlib.framework */,
+				5A1C0D0E2F00000000000002 /* RwNative.framework */,
+			);
+			name = Native;
 			sourceTree = "<group>";
 		};
 		97C146EF1CF9000F007C117D /* Products */ = {
