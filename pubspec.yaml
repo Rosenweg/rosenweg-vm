@@ -40,6 +40,15 @@ dependencies:
   crypto: ^3.0.8
   connectivity_plus: ^7.3.2
   file_selector: ^1.1.0
+  # Gemeinsame Basis der Rosenweg-Apps, hier vorerst nur der Anmeldeweg
+  # (Android: Ruecksprung-Activity ch.rosenweg4303.vm:/anmeldung) und die
+  # DNS-Server auf Android; der Rest folgt (rosenweg-basis
+  # docs/rosenweg-vm-umstellen.md). Privates Repo: in CI mit BASIS_TOKEN.
+  # Lokal mit ../rosenweg-basis: pubspec_overrides.yaml (nicht eingecheckt).
+  rosenweg_basis:
+    git:
+      url: https://github.com/Rosenweg/rosenweg-basis.git
+      ref: v0.2.0
 
 dev_dependencies:
   flutter_test:

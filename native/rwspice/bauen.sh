@@ -4,7 +4,10 @@
 #   ./bauen.sh linux   -> build/linux/librwspice.so    (Debian 13: apt install libspice-client-glib-2.0-dev)
 #   ./bauen.sh windows -> build/windows/rwspice.dll    (MSYS2 UCRT64: pacman -S mingw-w64-ucrt-x86_64-{gcc,pkgconf,spice-gtk})
 #
-# Android und iOS (eigener Bau von glib/spice-glib) siehe docs/plattformen.md.
+#   ./bauen.sh android <abi> -> build/android/<abi>/librwspice.so (vorher
+#                               native/spice-stapel/bauen.sh android <abi>)
+#
+# iOS siehe docs/plattformen.md.
 #
 # spice-glib wird dynamisch gelinkt (LGPL, siehe rwspice.h).
 set -euo pipefail
@@ -49,6 +52,21 @@ windows)
         $(pkg-config --libs spice-client-glib-2.0) -lpsapi -lole32 \
         -static-libgcc -Wl,--out-implib,build/windows/librwspice.dll.a \
         -o build/windows/rwspice.dll
+    ;;
+android)
+    abi="${2:-arm64-v8a}"
+    umg="../spice-stapel/build/arbeit/android-$abi/umgebung.sh"
+    [ -f "$umg" ] || { echo "Zuerst native/spice-stapel/bauen.sh android $abi" >&2; exit 1; }
+    # shellcheck disable=SC1090
+    . "$umg"
+    mkdir -p "build/android/$abi"
+    # spice-glib und GLib kommen aus libspiceglib.so (eigene .so, austauschbar)
+    "$CC" -O2 -fPIC -shared -fvisibility=hidden "${WARN[@]}" \
+        $("$PKGCFG" --cflags spice-client-glib-2.0) \
+        "${QUELLEN[@]}" \
+        -L"$SPICEGLIB_DIR" -lspiceglib -llog -lm -ldl $LDSEITEN -Wl,--no-undefined \
+        -Wl,-soname,librwspice.so -o "build/android/$abi/librwspice.so"
+    "$STRIP" --strip-unneeded "build/android/$abi/librwspice.so"
     ;;
 *) echo "Unbekanntes Ziel: $ziel" >&2; exit 2 ;;
 esac

@@ -31,4 +31,8 @@ class Konfig {
   /// Schema fuer Ruecksprung auf Telefonen (Android/iOS). Auf Desktops wird
   /// stattdessen ein Port auf localhost geoeffnet, wie im Programm "Maschinen".
   static const appSchema = 'ch.rosenweg4303.vm';
+
+  /// Ruecksprung auf Android (Authentik rosenweg-apps, strikter Eintrag);
+  /// die Activity dafuer bringt rosenweg_basis mit (Schema = applicationId).
+  static const telefonRuecksprung = '$appSchema:/anmeldung';
 }

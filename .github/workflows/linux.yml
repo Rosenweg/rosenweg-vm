@@ -71,6 +71,11 @@ jobs:
           echo "GOTOOLCHAIN=local" >> "$GITHUB_ENV"
           echo "PUB_CACHE=$C/pub-cache" >> "$GITHUB_ENV"
 
+      - uses: ./.github/actions/basis-zugang
+        with:
+          token: ${{ secrets.BASIS_TOKEN }}
+          deploy-key: ${{ secrets.BASIS_DEPLOY_KEY }}
+
       - name: Go-Tests (Tunnel, Gateway)
         run: |
           (cd native/rwtunnel && go vet ./... && go test -count=1 ./...)

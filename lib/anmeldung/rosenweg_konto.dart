@@ -4,11 +4,11 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:crypto/crypto.dart';
+import 'package:rosenweg_basis/rosenweg_basis.dart' show Anmeldeweg, AnmeldungAbgebrochen;
 
 import '../konfig.dart';
 import '../netz/json_anfrage.dart';
 import '../protokoll.dart';
-import 'browser_anmeldung.dart';
 import 'schluesselbund.dart';
 
 /// Anmeldung mit dem Rosenweg-Konto (Authentik "rosenweg-apps", PKCE).
@@ -63,7 +63,9 @@ class RosenwegKonto {
     final verifier = _zufall(48);
     final state = _zufall(24);
     final challenge = base64UrlEncode(sha256.convert(ascii.encode(verifier)).bytes).replaceAll('=', '');
-    final rueck = await BrowserAnmeldung.oeffnen('/anmeldung');
+    // Desktop: localhost-Port; Android: Schema ch.rosenweg4303.vm:/anmeldung
+    // ueber die Ruecksprung-Activity von rosenweg_basis (wie alle Rosenweg-Apps).
+    final rueck = await Anmeldeweg.fuer(Konfig.telefonRuecksprung).vorbereiten();
     final url = Uri.parse('${Konfig.authentik}/authorize/').replace(queryParameters: {
       'response_type': 'code',
       'client_id': Konfig.clientId,
@@ -73,7 +75,12 @@ class RosenwegKonto {
       'code_challenge': challenge,
       'code_challenge_method': 'S256',
     });
-    final antwort = await rueck.warten(url);
+    final Uri antwort;
+    try {
+      antwort = await rueck.warten(url);
+    } on AnmeldungAbgebrochen {
+      throw AnmeldeFehler('Anmeldung abgebrochen');
+    }
     final q = antwort.queryParameters;
     if (q['error'] != null || q['code'] == null) throw AnmeldeFehler('Anmeldung abgebrochen');
     if (q['state'] != state) throw AnmeldeFehler('Anmeldung abgelaufen, bitte nochmals');
