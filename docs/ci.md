@@ -85,3 +85,9 @@ Seit rosenweg-vm `rosenweg_basis` nutzt, holen alle Läufe (Linux, macOS,
 Windows, Android, iOS) die private Basis über `.github/actions/basis-zugang`
 mit dem Secret **`BASIS_TOKEN`** (fein granulierter Token, nur
 Rosenweg/rosenweg-basis, Contents read-only) oder `BASIS_DEPLOY_KEY`.
+
+## Eigener Windows-Runner
+
+Seit 27.11.2026 gibt es `win-runner` (VM 142 auf pve2, Labels `self-hosted,
+Windows, X64, rosenweg-windows`, Gruppe `rosenweg-privat`). Einrichtung,
+Werkzeuge und Konten stehen in [windows-runner.md](windows-runner.md).
