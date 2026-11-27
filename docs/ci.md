@@ -1,15 +1,21 @@
 # CI
 
+**Grundsatz (privates Repo):** alles, was auf Linux laufen kann (Linux,
+Android, Releases dieser Jobs), läuft auf dem eigenen Runner
+`[self-hosted, rosenweg]`. GitHub-gehostete Runner kosten Minuten und
+scheitern ohne Guthaben („Ausgabenlimit erreicht“). Windows, macOS und iOS
+gibt es nur dort; sie laufen darum **nur bei Tags `v*` und von Hand**
+(`gh workflow run <datei> --ref <zweig>`), nie bei PR/Push.
+
 ## Linux (`.github/workflows/linux.yml`)
 
 Läuft auf dem eigenen Runner der Organisation: Gruppe **`rosenweg-privat`**,
 Labels `self-hosted, Linux, X64` (heute `rosenweg-runner-1`, CT 140 auf pve2,
 Debian).
 
-**Einmalig nötig (nicht gemacht):** In den Organisationseinstellungen das Repo
-`rosenweg-vm` zur Runner-Gruppe `rosenweg-privat` hinzufügen. Heute stehen dort
-nur documents, netbox-collector, os-stationen und rosenweg-messenger. Ohne
-diesen Eintrag wartet der Lauf auf einen Runner.
+Das Repo steht in der Runner-Gruppe `rosenweg-privat` (ohne den Eintrag
+wartet jeder Lauf ewig auf einen Runner). Auf dem Runner gibt es kein `gh`:
+Releases legen die Jobs mit `actions/github-script` an.
 
 Was der Lauf braucht:
 - **Systempakete** über das eingeschränkte `apt-get` (nur wenn sie fehlen):
@@ -41,9 +47,8 @@ Debian-Paket der App entsteht.
 
 ## Windows (`.github/workflows/windows.yml`)
 
-GitHub-Runner `windows-latest` (kein eigener Windows-Runner nötig; Minuten
-zählen doppelt, darum nur bei Änderungen an `windows/`, `native/`, `lib/`,
-`pubspec.*`, von Hand oder bei Tags). Ablauf: MSYS2 UCRT64 mit spice-gtk,
+GitHub-Runner `windows-latest` (es gibt keinen eigenen Windows-Runner; Minuten
+zählen doppelt, darum nur von Hand oder bei Tags). Ablauf: MSYS2 UCRT64 mit spice-gtk,
 Go-Tests des Tunnels, `rwtunnel.dll`/`rwspice.dll`, `flutter test`, `flutter
 build windows`, `windows/installer/bauen.sh` (Bündel, Ladetest ohne MSYS2 im
 PATH, UsbDk mit Prüfsumme, Inno Setup), dann **Rauchtest**: Installer still
@@ -55,10 +60,13 @@ Signieren nur mit den Secrets `WINDOWS_ZERTIFIKAT_PFX`,
 
 ## Android (`.github/workflows/android.yml`)
 
-GitHub-Runner `ubuntu-latest`. Job **stapel** (Matrix arm64-v8a, x86_64):
-meson/ninja/pyparsing aus apt, NDK 28.2 über sdkmanager,
+Eigener Runner wie Linux. Flutter, JDK 21, Android-SDK (cmdline-tools 19.0)
+mit NDK 28.2 und Go mit fester Prüfsumme im Cache des Benutzerverzeichnisses
+(`~/.cache/rosenweg-flutter-ci`, geteilt mit rosenweg-salz/-basis, und
+`~/.cache/rosenweg-vm-ci`). Job **stapel** (Matrix arm64-v8a, x86_64):
+meson/ninja/pyparsing über das eingeschränkte apt-get,
 `native/spice-stapel/bauen.sh android <abi>` (Quellarchive inkl. ~1 GB
-GStreamer-Paket im Actions-Cache), `native/rwspice/bauen.sh android <abi>`,
+GStreamer-Paket in `~/.cache/rosenweg-vm-ci/spice-stapel-quellen`), `native/rwspice/bauen.sh android <abi>`,
 Prüfung der Abhängigkeiten und der 16-KB-Ausrichtung. Braucht keine Secrets.
 
 Job **apk**: `librwtunnel.so`, Sammeln nach `build/android-jniLibs`,
@@ -70,8 +78,8 @@ Job mit Meldung ab. Signatur mit dem Rosenweg-Schlüssel nur mit den Secrets
 
 ## iOS (`.github/workflows/ios.yml`)
 
-GitHub-Runner `macos-26` (Minuten zählen zehnfach: nur bei Änderungen an
-`ios/`, `native/`, `lib/native/`, von Hand oder bei Tags). Job **native**:
+GitHub-Runner `macos-26` (Minuten zählen zehnfach: nur von Hand oder bei
+Tags). Job **native**:
 meson/ninja/pyparsing in einem venv, glib (Werkzeuge) aus Homebrew,
 `native/spice-stapel/ios.sh`, `native/rwtunnel/bauen.sh ios`,
 `native/rwspice/bauen.sh ios`, Prüfung der Abhängigkeiten (nur System und die

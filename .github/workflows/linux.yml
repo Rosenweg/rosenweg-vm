@@ -127,28 +127,55 @@ jobs:
   veroeffentlichen:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: bauen
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, rosenweg]
     timeout-minutes: 15
     permissions:
       contents: write
       id-token: write
     steps:
+      # Eigener Runner: der Arbeitsordner bleibt zwischen Jobs liegen
+      # (rosenweg-salz v1.0.0: fremdes .deb mit hochgeladen). Darum vorher leeren.
+      - name: ausgabe/ leeren
+        run: rm -rf ausgabe
+
       - uses: actions/download-artifact@v4
         with:
           name: rosenweg-vm-linux
           path: ausgabe
 
+      # Ohne gh (gibt es auf dem eigenen Runner nicht), wie rosenweg-salz.
       - name: Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          # der macOS-Lauf legt dasselbe Release womoeglich gleichzeitig an
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
-            || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes "Linux (Debian 13) und macOS" \
-            || gh release view "$GITHUB_REF_NAME" >/dev/null
-          gh release upload "$GITHUB_REF_NAME" ausgabe/*.deb --clobber
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const tag = context.ref.replace('refs/tags/', '');
+            const repo = { owner: context.repo.owner, repo: context.repo.repo };
+            // der macOS-Lauf legt dasselbe Release womoeglich gleichzeitig an
+            const finden = () => github.rest.repos.getReleaseByTag({ ...repo, tag });
+            let rel;
+            try {
+              rel = await finden();
+            } catch (e) {
+              try {
+                rel = await github.rest.repos.createRelease({ ...repo, tag_name: tag, name: tag, body: 'Linux (Debian 13) und macOS' });
+              } catch (e2) {
+                rel = await finden();
+              }
+            }
+            const dateien = fs.readdirSync('ausgabe').filter((f) => f.endsWith('.deb'));
+            if (!dateien.length) throw new Error('Kein .deb in ausgabe/');
+            for (const f of dateien) {
+              // wie 'gh release upload --clobber'
+              const alt = rel.data.assets.find((a) => a.name === f);
+              if (alt) await github.rest.repos.deleteReleaseAsset({ ...repo, asset_id: alt.id });
+              await github.rest.repos.uploadReleaseAsset({
+                ...repo, release_id: rel.data.id, name: f,
+                data: fs.readFileSync(path.join('ausgabe', f)),
+              });
+              core.info(`Hochgeladen: ${f}`);
+            }
 
       - uses: Rosenweg/Website/.github/actions/apps-release@main
         with:
