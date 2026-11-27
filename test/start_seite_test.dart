@@ -1,16 +1,27 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:rosenweg_basis/rosenweg_basis.dart' show rosenwegThema;
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:rosenweg_basis/rosenweg_basis.dart'
+    show ApiAntwort, RosenwegSitzung, Schluesselbund, Transport, rosenwegThema;
 import 'package:rosenweg_vm/app_zustand.dart';
 import 'package:rosenweg_vm/gateway/gateway.dart';
 import 'package:rosenweg_vm/oberflaeche/start_seite.dart';
+import 'package:rosenweg_vm/vm_app.dart';
+
+class _OhneApi implements Transport {
+  const _OhneApi();
+  @override
+  Future<ApiAntwort> senden(String methode, String pfad, {Object? koerper}) async => (status: 503, json: null);
+}
 
 Future<void> zeigen(WidgetTester t, Size groesse) async {
   t.view.physicalSize = groesse;
   t.view.devicePixelRatio = 1;
   addTearDown(t.view.reset);
-  final z = AppZustand()
+  FlutterSecureStorage.setMockInitialValues({});
+  final sitzung = RosenwegSitzung(vmApp, speicher: Schluesselbund('rosenweg_vm_test'), transport: const _OhneApi());
+  final z = AppZustand(sitzung)
     ..computer = [Computer(vmid: 101, name: 'Büro-PC', laeuft: true)]
     ..phase = Phase.liste;
   await t.pumpWidget(MaterialApp(theme: rosenwegThema(Brightness.light), home: StartSeite(zustand: z)));

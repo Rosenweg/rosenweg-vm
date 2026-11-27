@@ -5,7 +5,7 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:flutter/services.dart';
+import 'package:rosenweg_basis/rosenweg_basis.dart' show RosenwegPlattform;
 
 import '../konfig.dart';
 
@@ -45,8 +45,6 @@ class HausErkennung {
 
 // ── System-DNS-Server je Plattform ───────────────────────────────────────
 
-const _kanal = MethodChannel('ch.rosenweg4303.vm/netz');
-
 /// Die DNS-Server, die das Betriebssystem gerade benutzt.
 ///
 /// - Linux: /etc/resolv.conf. Mit systemd-resolved steht dort 127.0.0.53 —
@@ -56,19 +54,13 @@ const _kanal = MethodChannel('ch.rosenweg4303.vm/netz');
 ///   `scutil --dns`.
 /// - Windows: `Get-DnsClientServerAddress` (PowerShell), sonst `ipconfig /all`.
 /// - Android: ConnectivityManager → LinkProperties.getDnsServers() des aktiven
-///   Netzes, ueber den Kanal ch.rosenweg4303.vm/netz (MainActivity.kt).
+///   Netzes, ueber das Plugin von rosenweg_basis (RosenwegPlattform.dnsServer).
 /// - iOS: noch keiner (Kanal folgt mit der iOS-App, res_9_getservers aus
 ///   libresolv). Ohne Server gilt "unterwegs" — das ist sicher, nur der Weg
 ///   ist im Haus dann etwas laenger.
 Future<List<InternetAddress>> systemDnsServer() async {
-  if (Platform.isAndroid || Platform.isIOS) {
-    try {
-      final l = await _kanal.invokeListMethod<String>('dnsServer') ?? const [];
-      return _adressen(l);
-    } on MissingPluginException {
-      return const [];
-    }
-  }
+  if (Platform.isAndroid) return _adressen(await RosenwegPlattform.dnsServer());
+  if (Platform.isIOS) return const [];
   if (Platform.isWindows) {
     try {
       final r = await Process.run('powershell', [

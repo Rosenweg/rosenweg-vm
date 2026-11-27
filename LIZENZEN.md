@@ -51,6 +51,20 @@ miniaudio, `BIBLIOTHEKEN.txt` mit MSYS2-Paket und Version jeder DLL; Quelltext
 über die PKGBUILDs auf packages.msys2.org). UsbDk (Apache-2.0) wird nur auf
 Wunsch mitinstalliert, als unverändertes MSI von Daynix.
 
+Android: `libspiceglib.so` je ABI fasst spice-glib, GLib, GStreamer-Kern,
+OpenSSL, pixman, opus, libjpeg-turbo, json-glib, usbredir und libusb zu einer
+eigenen dynamischen Bibliothek zusammen (statische Teile aus dem offiziellen
+GStreamer-Binärpaket, Rest selbst gebaut mit `native/spice-stapel/bauen.sh`).
+Sie bleibt als Ganzes austauschbar (wie `libgstreamer_android.so` der
+GStreamer-Anleitung); `BIBLIOTHEKEN.txt` (CI-Artefakt, Release) nennt Version
+und Quelle jeder enthaltenen Bibliothek.
+
+iOS: `SpiceGlib.framework` (spice-glib und die gebrauchten Teile des
+GStreamer-Binärpakets: GLib, GStreamer-Kern, OpenSSL, pixman, jpeg, zlib,
+json-glib) ist ein eigenes dynamisches Framework, austauschbar;
+`SpiceGlib-BIBLIOTHEKEN.txt` nennt die Versionen. rwspice und rwtunnel
+liegen in `RwNative.framework`.
+
 ## xkeyboard-config (Daten)
 
 `lib/spice/belegungen.g.dart` ist aus den Symboldateien von xkeyboard-config

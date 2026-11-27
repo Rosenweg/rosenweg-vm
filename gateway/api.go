@@ -5,7 +5,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/netip"
 	"sort"
@@ -46,14 +45,7 @@ func (g *Gateway) mitAnmeldung(h func(http.ResponseWriter, *http.Request, anfrag
 		defer cancel()
 		k, err := g.konten.Pruefen(ctx, token)
 		if err != nil {
-			status := http.StatusUnauthorized
-			if !errors.Is(err, ErrNichtAngemeldet) {
-				status = http.StatusServiceUnavailable
-			}
-			text := "Anmeldung abgelaufen"
-			if status != http.StatusUnauthorized {
-				text = "Anmeldung konnte nicht geprueft werden (Authentik nicht erreichbar)"
-			}
+			status, text := anmeldeFehler(err)
 			g.log.Schreiben(Eintrag{Aktion: "anmeldung", Ergebnis: "abgewiesen", Grund: err.Error()})
 			json200(w, status, map[string]string{"error": text})
 			return

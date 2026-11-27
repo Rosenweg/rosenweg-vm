@@ -15,7 +15,6 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "ch.rosenweg4303.vm"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
@@ -27,13 +26,44 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // Nur die ABIs, fuer die es den nativen Stapel gibt (native/spice-stapel);
+        // flutter build apk braucht dazu --target-platform android-arm64,android-x64:
+        // Telefone (arm64) und der Emulator (x86_64).
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
+    }
+
+    // librwspice.so, libspiceglib.so, librwtunnel.so je ABI; zusammengestellt
+    // von android/native-sammeln.sh (lokal) bzw. dem Workflow android.yml.
+    sourceSets["main"].jniLibs.srcDir("${rootDir}/../build/android-jniLibs")
+    // Plugins bringen teils armeabi-v7a mit (libdartjni.so); ohne Flutter und
+    // rwspice dafuer wuerde ein 32-Bit-Geraet die App installieren und abstuerzen.
+    packaging {
+        jniLibs {
+            excludes += listOf("lib/armeabi-v7a/**", "lib/x86/**")
+        }
+    }
+
+    // Rosenweg-Signierschluessel nur ueber Umgebungsvariablen (CI-Secrets,
+    // siehe .github/workflows/android.yml; lokal aus keystore.properties
+    // gesetzt). Ohne sie: Debug-Signatur, damit `flutter run --release` und
+    // der CI-Bau ohne Schluessel gehen. Wie rosenweg-salz.
+    val signierDatei = providers.environmentVariable("SIGNING_STORE_FILE").orNull
+    signingConfigs {
+        if (signierDatei != null) {
+            create("rosenweg") {
+                storeFile = file(signierDatei)
+                storePassword = providers.environmentVariable("SIGNING_STORE_PASSWORD").get()
+                keyAlias = providers.environmentVariable("SIGNING_KEY_ALIAS").get()
+                keyPassword = providers.environmentVariable("SIGNING_KEY_PASSWORD").get()
+            }
+        }
     }
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName(if (signierDatei != null) "rosenweg" else "debug")
         }
     }
 }

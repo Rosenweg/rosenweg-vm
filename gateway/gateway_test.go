@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -62,6 +63,33 @@ func neueUmgebung(t *testing.T) *umgebungTest {
 		w.WriteHeader(401)
 	}))
 	t.Cleanup(ak.Close)
+
+	// Haupt-API-Attrappe: GET /api/auth/me mit rw_app_ (Karte, QR, Handy).
+	// karte-anna gehoert zu anna (gleiche Mail, Benutzername wie in Authentik);
+	// karte-ohne hat keinen Benutzernamen (nie mit dem Konto im Portal).
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/auth/me" {
+			w.WriteHeader(404)
+			return
+		}
+		switch strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ") {
+		case u.tokens["karte-anna"]:
+			json.NewEncoder(w).Encode(map[string]any{"user": map[string]any{
+				"id": 7, "email": "Anna@rosenweg.test", "name": "Anna", "username": "anna", "groups": []string{"rosenweg9"}}})
+		case u.tokens["karte-ohne"]:
+			json.NewEncoder(w).Encode(map[string]any{"user": map[string]any{"id": 8, "email": "c@rosenweg.test", "username": nil}})
+		case u.tokens["karte-kaputt"]:
+			w.WriteHeader(502)
+		default:
+			w.WriteHeader(401)
+			io.WriteString(w, `{"error":"Anmeldung abgelaufen"}`)
+		}
+	}))
+	t.Cleanup(api.Close)
+	u.tokens["karte-anna"] = "rw_app_" + strings.Repeat("a", 43)
+	u.tokens["karte-ohne"] = "rw_app_" + strings.Repeat("o", 43)
+	u.tokens["karte-kaputt"] = "rw_app_" + strings.Repeat("k", 43)
+	u.tokens["karte-alt"] = "rw_app_" + strings.Repeat("x", 43)
 
 	// SPICE-Proxy-Attrappe (pve:3128): Echo nach "200 OK". Wie der echte
 	// spiceproxy (PVE::APIServer::AnyEvent) liest sie das Ticket aus dem
@@ -152,7 +180,7 @@ func neueUmgebung(t *testing.T) *umgebungTest {
 		WgPort: wgPort, EndpointExtern: fmt.Sprintf("127.0.0.1:%d", wgPort), EndpointIntern: fmt.Sprintf("127.0.0.1:%d", wgPort),
 		Netz: netip.MustParsePrefix("10.243.43.0/24"), SteuerBind: "127.0.0.1:0", SteuerToken: strings.Repeat("s", 40),
 		Schluessel: filepath.Join(t.TempDir(), "server.key"),
-		Userinfo:   ak.URL, ClientID: "rosenweg-apps",
+		Userinfo:   ak.URL, ClientID: "rosenweg-apps", APIMe: api.URL + "/api/auth/me",
 		PVEHosts:     []string{strings.TrimPrefix(pve.URL, "https://")},
 		PVESpicePort: sp.Addr().(*net.TCPAddr).Port,
 		PVEToken:     "vm-gateway@pve!app=geheim", PVERealm: "authentik", BenutzerClaim: "preferred_username",
@@ -335,5 +363,86 @@ func TestGatewayEndeZuEnde(t *testing.T) {
 	u.gw.Aufraeumen()
 	if n := u.gw.Anzahl(); n != 0 {
 		t.Fatalf("nach Ablauf noch %d Peers", n)
+	}
+}
+
+// Karten-/QR-/Handy-Anmeldung (rw_app_): ueber die Haupt-API geprueft, gleiche
+// Person wie mit dem Rosenweg-Konto, gleiche Rechte aus Proxmox.
+func TestAppTokenKarte(t *testing.T) {
+	u := neueUmgebung(t)
+	_, api := u.anmelden("karte-anna", "geraet-anna-k")
+
+	st, b := ruf(t, "GET", api+"/computer", u.tokens["karte-anna"])
+	if st != 200 {
+		t.Fatalf("Liste mit Karte: %d %s", st, b)
+	}
+	var liste []computerAntwort
+	json.Unmarshal(b, &liste)
+	if len(liste) != 3 {
+		t.Fatalf("Karte sieht andere Computer als das Konto: %s", b)
+	}
+	// Dasselbe Geraet mit dem Konto-Token derselben Person: gleiche Mail, geht.
+	if st, _ := ruf(t, "GET", api+"/computer", u.tokens["anna"]); st != 200 {
+		t.Fatalf("Konto-Token auf Karten-Geraet derselben Person: %d", st)
+	}
+	// Fremde Person ueber dieses Geraet: nein.
+	if st, _ := ruf(t, "GET", api+"/computer", u.tokens["bert"]); st != 403 {
+		t.Fatalf("fremdes Token auf Karten-Geraet: %d", st)
+	}
+	// Abgelaufen/widerrufen: 401 (App meldet sich neu an).
+	if st, _ := ruf(t, "GET", api+"/computer", u.tokens["karte-alt"]); st != 401 {
+		t.Fatalf("abgelaufener Karten-Zugang: %d", st)
+	}
+	// API kurz weg: 503, nicht 401 (die App bleibt angemeldet).
+	if st, _ := ruf(t, "GET", api+"/computer", u.tokens["karte-kaputt"]); st != 503 {
+		t.Fatalf("API weg: %d", st)
+	}
+}
+
+func TestAppTokenOhneBenutzer(t *testing.T) {
+	u := neueUmgebung(t)
+	body, _ := json.Marshal(map[string]string{"geraet": "geraet-ohne-123", "schluessel": "x"})
+	req, _ := http.NewRequest("POST", u.steuer+"/peers", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+strings.Repeat("s", 40))
+	req.Header.Set("X-Rosenweg-Token", u.tokens["karte-ohne"])
+	r, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Body.Close()
+	var a map[string]string
+	json.NewDecoder(r.Body).Decode(&a)
+	if r.StatusCode != 403 || !strings.Contains(a["error"], "Rosenweg-Konto") {
+		t.Fatalf("ohne Benutzernamen: %d %v", r.StatusCode, a)
+	}
+}
+
+func TestAppTokenMerkenKurz(t *testing.T) {
+	gefragt := 0
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gefragt++
+		json.NewEncoder(w).Encode(map[string]any{"user": map[string]any{"id": 1, "email": "a@x", "username": "anna"}})
+	}))
+	defer api.Close()
+	jetzt := time.Unix(1000, 0)
+	ks := NeueKonten(Konfig{APIMe: api.URL, PVERealm: "authentik"})
+	ks.jetzt = func() time.Time { return jetzt }
+	tok := "rw_app_" + strings.Repeat("z", 43)
+	for i := 0; i < 3; i++ {
+		k, err := ks.Pruefen(t.Context(), tok)
+		if err != nil || k.Benutzer != "anna@authentik" || k.Art != "app" {
+			t.Fatalf("Pruefen: %v %+v", err, k)
+		}
+	}
+	if gefragt != 1 {
+		t.Fatalf("API %d-mal gefragt, erwartet 1", gefragt)
+	}
+	jetzt = jetzt.Add(31 * time.Second)
+	ks.Pruefen(t.Context(), tok)
+	if gefragt != 2 {
+		t.Fatal("nach 30 s haette neu gefragt werden muessen")
+	}
+	if _, err := ks.Pruefen(t.Context(), "rw_app_"+strings.Repeat("z", 200)); !errors.Is(err, ErrNichtAngemeldet) {
+		t.Fatalf("zu langes App-Token: %v", err)
 	}
 }

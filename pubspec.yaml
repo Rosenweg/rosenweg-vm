@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.1+2
+version: 1.2.0+4
 
 environment:
   sdk: ^3.13.4
@@ -35,21 +35,21 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
   ffi: ^2.2.0
-  flutter_secure_storage: ^11.2.0
-  url_launcher: ^6.3.3
-  crypto: ^3.0.8
   connectivity_plus: ^7.3.2
   file_selector: ^1.1.0
-  # Gemeinsame Basis der Rosenweg-Apps: hier das Gerüst fuer Handy und
-  # Desktop (RosenwegGeruest) und das Thema. Privates Repo: in CI mit
-  # BASIS_TOKEN. Lokal mit ../rosenweg-basis: pubspec_overrides.yaml (nicht
-  # eingecheckt).
+  # Fuer den Linux-Pruefer vor dem Schluesselbund der Basis
+  # (lib/anmeldung/linux_schluesselbund.dart); dieselbe Fassung wie in der Basis.
+  flutter_secure_storage: ^11.2.0
+  # Gemeinsame Basis der Rosenweg-Apps: Anmeldung (RosenwegSitzung,
+  # AnmeldeTor: Karte, QR, Handy, Konto, still per Kerberos), Schluesselbund,
+  # Protokoll, Updater, DNS-Server auf Android. Privates Repo: in CI mit
+  # BASIS_TOKEN. Lokal mit ../rosenweg-basis: pubspec_overrides.yaml.
   rosenweg_basis:
     git:
       url: https://github.com/Rosenweg/rosenweg-basis.git
-      # Gerüst (rosenweg-basis #9) auf Stand v0.2.0, Zweig
-      # desktop-geruest-auf-v0.2.0; nach dem Tag v0.3.0 hier v0.3.0.
-      ref: 4f2cd07fdeb975a9b2721c92b2d824f3fdd3d05f
+      # v0.4.0 + Updater (rosenweg-basis#11) + iOS-MainActor-Fix (Zweig ios-mainactor);
+      # nach dem Merge auf den Tag v0.5.0 umstellen
+      ref: 942a355d1a0eb8b6adeb66a1543fb0b448fae355
 
 dev_dependencies:
   flutter_test:

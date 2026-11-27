@@ -268,11 +268,13 @@ grep -v '^$' "$ARBEIT/shlibdeps.log" | sed 's/^/   /' || true
 # Was dpkg-shlibdeps nicht sehen kann, weil es erst zur Laufzeit geladen wird:
 # - Ton: miniaudio öffnet libpulse bzw. libasound selbst (dlopen).
 # - Anmeldung: url_launcher ruft xdg-open für den Browser.
+# - Stille Anmeldung an den Stationen (Kerberos-Ticket der Sitzung):
+#   rosenweg_basis öffnet libgssapi_krb5.so.2 selbst (dlopen).
 # - Gespeicherte Anmeldung (flutter_secure_storage über libsecret) braucht
 #   einen Secret-Service-Dienst in der Sitzung; Cinnamon bringt gnome-keyring
 #   mit, darum nur empfohlen.
-DEPENDS="$SHLIBS, libpulse0 | libasound2t64, xdg-utils"
-RECOMMENDS="gnome-keyring"
+DEPENDS="$SHLIBS, libpulse0 | libasound2t64, xdg-utils, libgssapi-krb5-2"
+RECOMMENDS="gnome-keyring, pcscd, libpcsclite1"   # Karte am USB-Leser (Anmeldeschirm)
 
 GROESSE="$(du -sk --apparent-size "$BAUM" | cut -f1)"
 install -d -m 0755 "$BAUM/DEBIAN"

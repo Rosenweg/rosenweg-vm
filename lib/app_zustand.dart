@@ -1,21 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import 'package:flutter/foundation.dart';
+import 'package:rosenweg_basis/rosenweg_basis.dart';
 
-import 'anmeldung/rosenweg_konto.dart';
 import 'gateway/gateway.dart';
+import 'native/rwtunnel.dart';
 import 'netz/netzlage.dart';
-import 'protokoll.dart';
 
+/// Was nach der Anmeldung kommt. Die Anmeldung selbst (Karte, QR, „Mit dem
+/// Handy anmelden“, Rosenweg-Konto, still per Kerberos an Stationen und in
+/// der Windows-Domaene) macht [RosenwegSitzung] aus rosenweg_basis; davor
+/// steht ihr [AnmeldeTor]. Seit 1.2.0 hat die App keine eigenen Anmelde-Phasen.
 enum Phase {
-  /// Start: gespeicherte Anmeldung pruefen.
-  pruefen,
-
-  /// Keine (oder eine ueber 30 Tage alte) Anmeldung: Knopf "Anmelden".
-  kontoNoetig,
-
-  /// Anmeldeseite ist im Browser offen.
-  anmelden,
-
   /// Verbindung zum Haus wird aufgebaut.
   tunnel,
 
@@ -26,17 +21,17 @@ enum Phase {
   fehler,
 }
 
-/// Der ganze Ablauf an einer Stelle — EINE Anmeldung fuer alles:
-///   Rosenweg-Konto (still, wenn <= 30 Tage) → Tunnel zum vm-gateway → Liste
+/// Der Ablauf hinter dem Anmeldetor an einer Stelle:
+///   angemeldet (RosenwegSitzung) → Tunnel zum vm-gateway → Liste
 class AppZustand extends ChangeNotifier {
-  AppZustand() : konto = RosenwegKonto() {
-    netz = Netzlage(konto)..addListener(notifyListeners);
+  AppZustand(this.sitzung) {
+    netz = Netzlage(sitzung.zugang)..addListener(notifyListeners);
   }
 
-  final RosenwegKonto konto;
+  final RosenwegSitzung sitzung;
   late final Netzlage netz;
 
-  Phase phase = Phase.pruefen;
+  Phase phase = Phase.tunnel;
   String? fehler;
   List<Computer> computer = const [];
 
@@ -47,54 +42,61 @@ class AppZustand extends ChangeNotifier {
   /// ohne Anmeldung und ohne Hausnetz.
   static const testSpice = String.fromEnvironment('RW_TEST_SPICE');
 
+  bool _weg = false;
+
+  @override
+  void notifyListeners() {
+    if (!_weg) super.notifyListeners();
+  }
+
+  /// Nach [schliessen] aufrufen; laeuft noch ein Aufbau, kommt er still ins Leere.
+  @override
+  void dispose() {
+    _weg = true;
+    netz.removeListener(notifyListeners);
+    super.dispose();
+  }
+
   void _setzen(Phase p, [String? f]) {
+    if (_weg) return;
     if (p != phase || f != null) Protokoll.schreiben('Phase ${p.name}${f != null ? ' — $f' : ''}');
     phase = p;
     fehler = f;
     notifyListeners();
   }
 
+  /// Sobald die Sitzung bereit ist (VmHaupt): Tunnel, dann Liste.
   Future<void> starten() async {
     try {
-      _setzen(Phase.pruefen);
       if (testSpice.isNotEmpty) {
         netz.lage = Lage.test;
         computer = [Computer(vmid: 0, name: 'Testcomputer (lokal)', laeuft: true)];
         _setzen(Phase.liste);
         return;
       }
-      if (!await konto.angemeldet) {
-        _setzen(Phase.kontoNoetig);
+      if (sitzung.geteiltesTelefon) {
+        // Kein eigenes Token auf geteilten Telefonen (Rosenweg Geraet meldet an);
+        // einen Tunnel mit dem Token der Person gibt es dort nicht.
+        _setzen(Phase.fehler, 'Auf den geteilten Rosenweg-Telefonen gibt es die virtuellen Computer nicht.');
         return;
       }
-      await _verbinden();
+      _setzen(Phase.tunnel);
+      await netz.aufbauen();
+      if (_weg) {
+        // Seite schon weg (abgemeldet, waehrend der Tunnel entstand): gleich wieder zu.
+        await netz.abbauen();
+        return;
+      }
+      await aktualisieren();
+    } on TunnelFehler catch (e) {
+      if (e.status == 401) {
+        _abgelehnt();
+        return;
+      }
+      _setzen(Phase.fehler, '$e');
     } catch (e) {
       _setzen(Phase.fehler, '$e');
     }
-  }
-
-  /// Nicht aufgefangener Fehler (main.dart): sichtbar machen statt still
-  /// weiterlaufen oder enden. Den Pfad der Logdatei mit anzeigen.
-  void unerwartet(Object e) {
-    final p = Protokoll.pfad;
-    _setzen(Phase.fehler, '$e${p != null ? '\n\nEinzelheiten: $p' : ''}');
-  }
-
-  /// Knopf "Mit Rosenweg-Konto anmelden".
-  Future<void> anmelden() async {
-    try {
-      _setzen(Phase.anmelden);
-      await konto.anmelden();
-      await _verbinden();
-    } catch (e) {
-      _setzen(Phase.fehler, '$e');
-    }
-  }
-
-  Future<void> _verbinden() async {
-    _setzen(Phase.tunnel);
-    await netz.aufbauen();
-    await aktualisieren();
   }
 
   Future<void> aktualisieren() async {
@@ -105,16 +107,22 @@ class AppZustand extends ChangeNotifier {
       _setzen(Phase.liste);
     } on GatewayFehler catch (e) {
       if (e.status == 401) {
-        // Anmeldung abgelaufen oder widerrufen: ehrlich zurueck zum Knopf.
         await netz.abbauen();
-        await konto.abmelden();
-        _setzen(Phase.kontoNoetig);
+        _abgelehnt();
         return;
       }
       _setzen(Phase.fehler, '$e');
     } catch (e) {
       _setzen(Phase.fehler, '$e');
     }
+  }
+
+  /// Anmeldung trotz Erneuern abgelehnt (abgelaufen, widerrufen, Karte
+  /// entzogen): die Sitzung meldet einmal still neu an (Kerberos), sonst
+  /// zeigt das Anmeldetor den Anmeldeschirm. Diese Seite wird dabei neu gebaut.
+  void _abgelehnt() {
+    Protokoll.schreiben('Anmeldung abgelehnt (401)');
+    sitzung.nichtMehrAngemeldet();
   }
 
   Future<void> einschalten(Computer c) async {
@@ -124,15 +132,16 @@ class AppZustand extends ChangeNotifier {
     await aktualisieren();
   }
 
+  /// Knopf "Abmelden": Tunnel zu, dann die Sitzung (das Anmeldetor zeigt den
+  /// Anmeldeschirm; "Mit Rosenweg-Konto anmelden" versucht es dort zuerst still).
   Future<void> abmelden() async {
     await netz.abbauen();
-    await konto.abmelden();
     computer = const [];
-    await starten();
+    await sitzung.abmelden();
   }
 
-  /// Beim Schliessen der App: Peer abmelden, damit der Tunnel-Schluessel
-  /// sofort ungueltig ist. Die Anmeldung (Refresh-Token) bleibt fuer den
-  /// naechsten Start.
+  /// Beim Schliessen der App und wenn die Anmeldung wegfaellt: Peer abmelden,
+  /// damit der Tunnel-Schluessel sofort ungueltig ist. Die Anmeldung bleibt
+  /// fuer den naechsten Start.
   Future<void> schliessen() => netz.abbauen();
 }

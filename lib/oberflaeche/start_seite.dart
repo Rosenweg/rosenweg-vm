@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import 'package:flutter/material.dart';
-import 'package:rosenweg_basis/rosenweg_basis.dart' show Fensterklasse, RosenwegGeruest;
+import 'package:rosenweg_basis/rosenweg_basis.dart' show AnmeldeArt, Fensterklasse, RosenwegGeruest, zeigeAnmeldung;
 
 import '../app_zustand.dart';
 import '../netz/netzlage.dart';
@@ -22,7 +22,7 @@ class StartSeite extends StatelessWidget {
       builder: (context, _) => RosenwegGeruest(
         titel: const Text('Meine Computer'),
         aktionen: [
-          _LageAnzeige(netz: zustand.netz),
+          _LageAnzeige(zustand: zustand),
           if (zustand.phase == Phase.liste)
             IconButton(
               tooltip: 'Liste neu laden',
@@ -32,15 +32,23 @@ class StartSeite extends StatelessWidget {
           PopupMenuButton<String>(
             tooltip: 'Konto',
             icon: const Icon(Icons.account_circle_outlined),
-            itemBuilder: (_) => [
-              if (zustand.konto.name != null)
-                PopupMenuItem(enabled: false, child: Text(zustand.konto.name!)),
-              if (zustand.konto.email != null)
-                PopupMenuItem(enabled: false, child: Text(zustand.konto.email!)),
-              const PopupMenuItem(value: 'ueber', child: Text('Über diese App')),
-              const PopupMenuItem(value: 'ab', child: Text('Abmelden')),
-            ],
-            onSelected: (wahl) => wahl == 'ueber' ? _ueber(context) : zustand.abmelden(),
+            itemBuilder: (_) {
+              // Immer der echte Stand der Sitzung (rosenweg_basis), nie eine Vermutung.
+              final st = zustand.sitzung.stand;
+              return [
+                if ((st.name ?? '').isNotEmpty) PopupMenuItem(enabled: false, child: Text(st.name!)),
+                PopupMenuItem(enabled: false, child: Text(st.art.text)),
+                const PopupMenuItem(value: 'anmeldung', child: Text('Anmeldung')),
+                const PopupMenuItem(value: 'ueber', child: Text('Über diese App')),
+                if (st.angemeldet && st.art != AnmeldeArt.geteiltesTelefon)
+                  const PopupMenuItem(value: 'ab', child: Text('Abmelden')),
+              ];
+            },
+            onSelected: (wahl) => switch (wahl) {
+              'anmeldung' => zeigeAnmeldung(context, zustand.sitzung),
+              'ueber' => _ueber(context),
+              _ => zustand.abmelden(),
+            },
           ),
         ],
         inhalt: _inhalt(context),
@@ -59,21 +67,8 @@ class StartSeite extends StatelessWidget {
 
   Widget _inhalt(BuildContext context) {
     switch (zustand.phase) {
-      case Phase.pruefen:
-        return const _Hinweis(warten: true, text: 'Einen Moment …');
       case Phase.tunnel:
         return const _Hinweis(warten: true, text: 'Sichere Verbindung ins Haus wird aufgebaut …');
-      case Phase.anmelden:
-        return const _Hinweis(
-            warten: true,
-            text: 'Die Anmeldeseite wurde im Browser geoeffnet.\nNach der Anmeldung geht es hier weiter.');
-      case Phase.kontoNoetig:
-        return _Hinweis(
-          logo: true,
-          text: 'Bitte mit dem Rosenweg-Konto anmelden.\nDie App merkt sich die Anmeldung 30 Tage.',
-          knopf: 'Mit Rosenweg-Konto anmelden',
-          aktion: zustand.anmelden,
-        );
       case Phase.fehler:
         return _Hinweis(text: 'Es hat nicht geklappt:\n${zustand.fehler}', knopf: 'Nochmals', aktion: zustand.starten);
       case Phase.liste:
@@ -145,32 +140,52 @@ class _Zeile extends StatelessWidget {
   }
 }
 
-/// Kurz und klar: im Haus / unterwegs (sicher verbunden).
+/// Kurz und klar, was gerade ist: im Haus / unterwegs (sicher verbunden) —
+/// und solange es keine Verbindung gibt, warum nicht. Frueher stand hier vor
+/// jeder Verbindung "Verbindung wird aufgebaut …", auch wenn die App nur auf
+/// den Knopf "Anmelden" wartete (Pruefung desktop-test, 27.11.2026).
 class _LageAnzeige extends StatelessWidget {
-  const _LageAnzeige({required this.netz});
-  final Netzlage netz;
+  const _LageAnzeige({required this.zustand});
+  final AppZustand zustand;
 
   @override
   Widget build(BuildContext context) {
-    final (icon, farbe) = switch (netz.lage) {
-      Lage.imHaus => (Icons.home_outlined, Colors.green),
-      Lage.unterwegs => (Icons.lock_outline, Colors.blue),
-      Lage.keinZugang => (Icons.cloud_off, Colors.red),
-      Lage.unbekannt => (Icons.sync, Colors.grey),
-      Lage.test => (Icons.science_outlined, Colors.orange),
-    };
+    final (icon, farbe, text) = lageAnzeige(zustand.phase, zustand.netz);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8),
-      child: Chip(avatar: Icon(icon, color: farbe, size: 18), label: Text(netz.beschreibung)),
+      child: Chip(avatar: Icon(icon, color: farbe, size: 18), label: Text(text)),
     );
   }
 }
 
+/// Symbol, Farbe und Text oben rechts. Sobald die Netzlage etwas weiss, gilt
+/// sie; vorher sagt die Phase, worauf die App wartet.
+///
+/// Seit 1.2.0 steht die Anmeldung (Anmeldetor aus rosenweg_basis) vor dieser
+/// Seite; hier bleiben nur noch Tunnel, Liste und Fehler.
+(IconData, Color, String) lageAnzeige(Phase phase, Netzlage netz) {
+  final lage = netz.lage;
+  if (lage != Lage.unbekannt) {
+    final (icon, farbe) = switch (lage) {
+      Lage.imHaus => (Icons.home_outlined, Colors.green),
+      Lage.unterwegs => (Icons.lock_outline, Colors.blue),
+      Lage.keinZugang => (Icons.cloud_off, Colors.red),
+      Lage.test => (Icons.science_outlined, Colors.orange),
+      Lage.unbekannt => (Icons.sync, Colors.grey),
+    };
+    return (icon, farbe, netz.beschreibung);
+  }
+  return switch (phase) {
+    Phase.tunnel => (Icons.sync, Colors.grey, netz.beschreibung),
+    Phase.fehler => (Icons.cloud_off, Colors.grey, 'Nicht verbunden'),
+    Phase.liste => (Icons.sync, Colors.grey, netz.beschreibung),
+  };
+}
+
 class _Hinweis extends StatelessWidget {
-  const _Hinweis({required this.text, this.warten = false, this.logo = false, this.knopf, this.aktion});
+  const _Hinweis({required this.text, this.warten = false, this.knopf, this.aktion});
   final String text;
   final bool warten;
-  final bool logo;
   final String? knopf;
   final VoidCallback? aktion;
 
@@ -180,7 +195,6 @@ class _Hinweis extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(32),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          if (logo) const Padding(padding: EdgeInsets.only(bottom: 24), child: _Logo(groesse: 128)),
           if (warten) const Padding(padding: EdgeInsets.only(bottom: 24), child: CircularProgressIndicator()),
           Text(text, textAlign: TextAlign.center, style: Theme.of(context).textTheme.titleMedium),
           if (knopf != null)

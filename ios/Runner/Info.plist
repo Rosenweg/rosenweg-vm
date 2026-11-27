@@ -2,6 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- Anmeldeschirm (rosenweg_basis): Rosenweg-Karte per Core NFC, Anmelde-QR per Kamera -->
+	<key>NFCReaderUsageDescription</key>
+	<string>Zum Anmelden mit der Rosenweg-Karte.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Zum Scannen des Anmelde-QR.</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>
@@ -26,6 +31,8 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Im Haus verbindet sich die App direkt mit dem Rosenweg-Netz statt über das Internet.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Damit der virtuelle Computer Ihr Mikrofon nutzen kann, wenn Sie es in der App einschalten.</string>
 	<key>UIApplicationSceneManifest</key>
