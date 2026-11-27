@@ -21,4 +21,7 @@ abstract interface class SpiceZiel {
   /// PC-Scancode Satz 1, E0-Tasten als 0x100 | code.
   void taste(int scancode, int gedrueckt);
   void feststellAus();
+
+  /// Bitte an den Gast, diese Aufloesung zu nehmen (nur mit spice-vdagent).
+  void bildschirmGroesse(int breite, int hoehe);
 }

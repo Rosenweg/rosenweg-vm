@@ -24,6 +24,10 @@ class BedienEinstellung extends ChangeNotifier {
 
   TouchModus touch = TouchModus.direkt;
 
+  /// Aufloesung des Gasts an Bildschirm bzw. Fenster anpassen (braucht im
+  /// Gast den spice-vdagent; ohne ihn wird das Bild nur eingepasst).
+  bool aufloesungAnpassen = true;
+
   /// Kurze Hilfe zu den Gesten schon gezeigt?
   bool hilfeGesehen = false;
 
@@ -38,17 +42,19 @@ class BedienEinstellung extends ChangeNotifier {
       final j = jsonDecode(roh) as Map<String, dynamic>;
       touch = j['touch'] == 'touchpad' ? TouchModus.touchpad : TouchModus.direkt;
       hilfeGesehen = (j['hilfe'] as bool?) ?? false;
+      aufloesungAnpassen = (j['aufloesung'] as bool?) ?? true;
       notifyListeners();
     } catch (e) {
       Protokoll.schreiben('Bedien-Einstellung unlesbar, Vorgaben', e);
     }
   }
 
-  Future<void> setzen({TouchModus? touch, bool? hilfeGesehen}) async {
+  Future<void> setzen({TouchModus? touch, bool? hilfeGesehen, bool? aufloesungAnpassen}) async {
     this.touch = touch ?? this.touch;
+    this.aufloesungAnpassen = aufloesungAnpassen ?? this.aufloesungAnpassen;
     this.hilfeGesehen = hilfeGesehen ?? this.hilfeGesehen;
     notifyListeners();
-    Protokoll.schreiben('Bedienung: Touch ${this.touch.name}');
+    Protokoll.schreiben('Bedienung: Touch ${this.touch.name}, Aufloesung anpassen ${this.aufloesungAnpassen}');
     try {
       await vmSpeicher.setzen({'bedienung': jsonEncode(_json())});
     } catch (e) {
@@ -56,12 +62,13 @@ class BedienEinstellung extends ChangeNotifier {
     }
   }
 
-  Map<String, Object> _json() => {'touch': touch.name, 'hilfe': hilfeGesehen};
+  Map<String, Object> _json() => {'touch': touch.name, 'hilfe': hilfeGesehen, 'aufloesung': aufloesungAnpassen};
 
   /// Nur fuer Tests: Werte setzen, ohne Schluesselbund.
   @visibleForTesting
-  void zuruecksetzen({TouchModus touch = TouchModus.direkt}) {
+  void zuruecksetzen({TouchModus touch = TouchModus.direkt, bool aufloesungAnpassen = true}) {
     this.touch = touch;
+    this.aufloesungAnpassen = aufloesungAnpassen;
     hilfeGesehen = false;
     _geladen = true;
     notifyListeners();

@@ -13,6 +13,7 @@ import 'package:flutter/services.dart';
 
 import '../native/rwspice.dart';
 import '../protokoll.dart';
+import 'aufloesung.dart';
 import 'bedien_einstellung.dart';
 import 'bildschirm_tastatur.dart';
 import 'scancodes.dart';
@@ -180,7 +181,7 @@ class _Ime with TextInputClient {
 /// CVPixelBuffer, Windows PixelBufferTexture, Android SurfaceTexture), gespeist
 /// aus demselben Puffer — die Schnittstelle von rwspice bleibt gleich.
 class SpiceBildschirm extends StatefulWidget {
-  const SpiceBildschirm({super.key, this.hinweis, this.steuerung, this.ziel});
+  const SpiceBildschirm({super.key, this.hinweis, this.steuerung, this.ziel, this.flaeche});
 
   /// Kurzer Hinweis an die Person (z. B. Zeichen fehlt in der Gastbelegung).
   final void Function(String text)? hinweis;
@@ -190,6 +191,12 @@ class SpiceBildschirm extends StatefulWidget {
 
   /// Wohin Eingaben gehen; ohne Angabe librwspice.
   final SpiceZiel? ziel;
+
+  /// Platz fuer das Bild in logischen Pixeln, OHNE Bildschirmtastatur und
+  /// Leiste (sonst wechselte der Gast bei jedem Oeffnen der Tastatur die
+  /// Aufloesung). Daraus die Aufloesung fuer den Gast ([gastAufloesung]);
+  /// null = so wie das Widget gross ist.
+  final Size? flaeche;
 
   @override
   State<SpiceBildschirm> createState() => _SpiceBildschirmState();
@@ -237,10 +244,42 @@ class _SpiceBildschirmState extends State<SpiceBildschirm> with SingleTickerProv
           setState(_bildWeg);
         case SpiceEreignisArt.mausmodus:
           _absolut = e.a == 2;
+        case SpiceEreignisArt.agent:
+          _agent = e.a == 1;
+          _gesendeteAufloesung = null;
+          Protokoll.schreiben('Gast-Agent ${_agent ? 'da' : 'weg'}');
+          _aufloesungPruefen();
         default:
           break;
       }
     });
+  }
+
+  // ── Aufloesung ────────────────────────────────────────────────────────
+  // Mit spice-vdagent im Gast bekommt er die Groesse und Ausrichtung des
+  // Geraets bzw. Fensters (auch nach dem Drehen, kurz verzoegert). Ohne
+  // Agent bleibt seine Aufloesung, das Bild wird eingepasst wie bisher.
+  bool _agent = false;
+  Size? _gesendeteAufloesung;
+  Timer? _aufloesungTimer;
+
+  void _aufloesungPruefen() {
+    _aufloesungTimer?.cancel();
+    _aufloesungTimer = Timer(const Duration(milliseconds: 700), () {
+      if (!mounted || !_agent || !_bedienung.aufloesungAnpassen) return;
+      final logisch = widget.flaeche ?? _flaeche;
+      final z = gastAufloesung(logisch, MediaQuery.maybeDevicePixelRatioOf(context) ?? 1);
+      if (z == null || z == _gesendeteAufloesung) return;
+      _gesendeteAufloesung = z;
+      Protokoll.schreiben('Aufloesung an den Gast: ${z.width.toInt()}x${z.height.toInt()}');
+      _spice.bildschirmGroesse(z.width.toInt(), z.height.toInt());
+    });
+  }
+
+  @override
+  void didUpdateWidget(SpiceBildschirm alt) {
+    super.didUpdateWidget(alt);
+    if (alt.flaeche != widget.flaeche) _aufloesungPruefen();
   }
 
   void _bildWeg() {
@@ -577,7 +616,13 @@ class _SpiceBildschirmState extends State<SpiceBildschirm> with SingleTickerProv
       });
 
   void _bedienungGeaendert() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    setState(() {});
+    if (_bedienung.aufloesungAnpassen) {
+      _aufloesungPruefen();
+    } else {
+      _gesendeteAufloesung = null;
+    }
   }
 
   // ── Scrollen ──────────────────────────────────────────────────────────
@@ -871,6 +916,7 @@ class _SpiceBildschirmState extends State<SpiceBildschirm> with SingleTickerProv
             // Flaeche anders (Drehen, Tastatur): Zoom behalten, aber im Rahmen.
             _flaeche = g;
             _versatz = _begrenzt(_versatz, g);
+            if (widget.flaeche == null) _aufloesungPruefen();
           }
           final zeigerDa = _touchpad && bild != null && _breite > 0;
           return Listener(
@@ -945,6 +991,7 @@ class _SpiceBildschirmState extends State<SpiceBildschirm> with SingleTickerProv
   @override
   void dispose() {
     _langTimer?.cancel();
+    _aufloesungTimer?.cancel();
     _bedienung.removeListener(_bedienungGeaendert);
     _ime.schliessen();
     if (_steuerung._s == this) _steuerung._s = null;

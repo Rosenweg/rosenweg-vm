@@ -93,7 +93,7 @@ class RwSpice implements SpiceZiel {
         _mausTaste = lib.lookupFunction<Void Function(Int32, Int32, Int32), void Function(int, int, int)>('rw_spice_maus_taste'),
         _taste = lib.lookupFunction<Void Function(Int32, Int32), void Function(int, int)>('rw_spice_taste'),
         _feststellAus = lib.lookupFunction<Void Function(), void Function()>('rw_spice_feststell_aus'),
-        bildschirmGroesse = lib.lookupFunction<Void Function(Int32, Int32), void Function(int, int)>('rw_spice_bildschirm_groesse'),
+        _bildschirmGroesse = lib.lookupFunction<Void Function(Int32, Int32), void Function(int, int)>('rw_spice_bildschirm_groesse'),
         _ton = lib.lookupFunction<Void Function(Int32, Int32), void Function(int, int)>('rw_spice_ton'),
         _usbListe = lib.lookupFunction<Pointer<Utf8> Function(), Pointer<Utf8> Function()>('rw_spice_usb_liste'),
         _usbSchalten = lib.lookupFunction<Void Function(Pointer<Utf8>, Int32), void Function(Pointer<Utf8>, int)>('rw_spice_usb_schalten'),
@@ -134,7 +134,7 @@ class RwSpice implements SpiceZiel {
   final void Function() trennen;
   final int Function(Pointer<Uint8>, int, Pointer<Int32>, Pointer<Int32>) _bildAbholen;
   final void Function(int, int, int) _mausPosition, _mausBewegung, _mausTaste;
-  final void Function(int, int) _taste, bildschirmGroesse, _ton;
+  final void Function(int, int) _taste, _bildschirmGroesse, _ton;
   final void Function() _feststellAus;
 
   @override
@@ -150,6 +150,8 @@ class RwSpice implements SpiceZiel {
   void taste(int scancode, int gedrueckt) => _taste(scancode, gedrueckt);
   @override
   void feststellAus() => _feststellAus();
+  @override
+  void bildschirmGroesse(int breite, int hoehe) => _bildschirmGroesse(breite, hoehe);
   final Pointer<Utf8> Function() _usbListe, _fehler;
   final void Function(Pointer<Utf8>, int) _usbSchalten, _ordner;
 

@@ -218,6 +218,13 @@ class _BildschirmSeiteState extends State<BildschirmSeite> with WidgetsBindingOb
     _steuerung.fokus();
   }
 
+  /// Platz fuer das Bild ohne Bildschirmtastatur und Leiste: Fenster minus
+  /// Systemleisten minus Kopfleiste (44).
+  Size _bildFlaeche(BuildContext context) {
+    final mq = MediaQuery.of(context);
+    return Size(mq.size.width - mq.padding.horizontal, mq.size.height - mq.padding.vertical - 44);
+  }
+
   void _tonSetzen() => _spice.ton(wiedergabe: _ton, mikrofon: _mikrofon);
 
   Future<void> _usbMenue() async {
@@ -386,6 +393,15 @@ class _BildschirmSeiteState extends State<BildschirmSeite> with WidgetsBindingOb
                 onChanged: (v) => t.setzen(macIsoTausch: v),
               ),
           ],
+          SwitchListTile(
+            key: const ValueKey('aufloesung-anpassen'),
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Auflösung anpassen'),
+            subtitle: const Text('Der Computer nimmt Grösse und Ausrichtung dieses Bildschirms an '
+                '(braucht im Computer den SPICE-Agent; ohne ihn wird das Bild nur eingepasst).'),
+            value: bed.aufloesungAnpassen,
+            onChanged: (v) => bed.setzen(aufloesungAnpassen: v),
+          ),
           const Divider(height: 24),
           Text('Berührung', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 12),
@@ -534,6 +550,7 @@ class _BildschirmSeiteState extends State<BildschirmSeite> with WidgetsBindingOb
         Positioned.fill(
           child: SpiceBildschirm(
             steuerung: _steuerung,
+            flaeche: _bildFlaeche(context),
             hinweis: (t) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(t))),
           ),
         ),

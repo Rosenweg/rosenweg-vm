@@ -30,6 +30,8 @@ class AttrappeZiel implements SpiceZiel {
   void taste(int scancode, int gedrueckt) => tasten.add((scancode, gedrueckt == 1));
   @override
   void feststellAus() {}
+  @override
+  void bildschirmGroesse(int breite, int hoehe) => groessen.add((breite, hoehe));
 
   /// Nur die Tastendruecke (ohne Loslassen), lesbarer in Erwartungen.
   List<int> get gedrueckt => [for (final t in tasten) if (t.$2) t.$1];
