@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:ffi/ffi.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -12,9 +13,160 @@ import 'package:flutter/services.dart';
 
 import '../native/rwspice.dart';
 import '../protokoll.dart';
+import 'bildschirm_tastatur.dart';
 import 'scancodes.dart';
+import 'spice_ziel.dart';
 import 'tastatur.dart';
 import 'tastatur_einstellung.dart';
+
+/// Bedienung des Bildschirms von aussen (Leiste der Seite): Bildschirm-
+/// tastatur auf/zu, Sondertasten, gehaltene Umschalter, Fokus zurueck.
+class BildschirmSteuerung extends ChangeNotifier {
+  _SpiceBildschirmState? _s;
+  final _gehalten = <Umschalter>{};
+  bool _tastatur = false;
+
+  /// Umschalter, die beim naechsten Tastendruck mitgehen.
+  Set<Umschalter> get gehalten => Set.unmodifiable(_gehalten);
+
+  /// Bildschirmtastatur und Sondertasten-Leiste sind offen.
+  bool get tastaturOffen => _tastatur;
+
+  void umschalten(Umschalter u) {
+    if (!_gehalten.remove(u)) _gehalten.add(u);
+    notifyListeners();
+    _s?._fokusHolen();
+  }
+
+  /// Eine Taste antippen (mit den gehaltenen Umschaltern).
+  void tippen(int sc) => _s?._antippen(sc);
+
+  /// Tasten gemeinsam druecken und in umgekehrter Reihenfolge loslassen
+  /// (Strg+Alt+Entf). Gehaltene Umschalter bleiben unberuehrt.
+  void kombination(List<int> tasten) => _s?._kombination(tasten);
+
+  void tastatur(bool an) {
+    if (_tastatur == an) return;
+    _tastatur = an;
+    _s?._imeSchalten(an);
+    notifyListeners();
+  }
+
+  /// Tastaturfokus zurueck aufs Bild (nach einem Blatt oder Menue).
+  void fokus() => _s?._fokusHolen();
+
+  /// Das System hat die Bildschirmtastatur geschlossen.
+  void _imeZu() {
+    if (!_tastatur) return;
+    _tastatur = false;
+    notifyListeners();
+  }
+
+  /// Gehaltene Umschalter fuer einen Tastendruck nehmen und loslassen.
+  List<int> _verbrauchen() {
+    if (_gehalten.isEmpty) return const [];
+    final l = [
+      for (final u in Umschalter.values)
+        if (_gehalten.contains(u)) u.sc,
+    ];
+    _gehalten.clear();
+    notifyListeners();
+    return l;
+  }
+}
+
+/// Bildschirmtastatur auf Android/iOS: ein unsichtbares Eingabefeld, dessen
+/// Aenderungen als Tasten zum Gast gehen (siehe [textAenderung]).
+class _Ime with TextInputClient {
+  _Ime(this._s);
+  final _SpiceBildschirmState _s;
+  TextInputConnection? _v;
+  var _wert = const TextEditingValue(
+    text: imePlatzhalter,
+    selection: TextSelection.collapsed(offset: imePlatzhalter.length),
+  );
+
+  /// Je Zeichen im Feld: ist es beim Gast angekommen? Der Platzhalter zaehlt
+  /// als angekommen (Rueckschritt im "leeren" Feld loescht im Gast). Ein
+  /// Zeichen, das die Gastbelegung nicht hat, wird beim Loeschen nicht
+  /// zurueckgenommen.
+  var _angekommen = List<bool>.filled(imePlatzhalter.length, true);
+
+  bool get offen => _v?.attached ?? false;
+
+  void oeffnen(int? viewId) {
+    if (!offen) {
+      _v = TextInput.attach(this, imeKonfiguration(viewId: viewId));
+      _zuruecksetzen();
+    }
+    _v!.show();
+  }
+
+  void schliessen() {
+    _v?.close();
+    _v = null;
+  }
+
+  void _zuruecksetzen() {
+    _angekommen = List<bool>.filled(imePlatzhalter.length, true);
+    _wert = const TextEditingValue(
+      text: imePlatzhalter,
+      selection: TextSelection.collapsed(offset: imePlatzhalter.length),
+    );
+    _v?.setEditingState(_wert);
+  }
+
+  @override
+  TextEditingValue? get currentTextEditingValue => _wert;
+
+  @override
+  AutofillScope? get currentAutofillScope => null;
+
+  @override
+  void updateEditingValue(TextEditingValue neu) {
+    final alt = _wert;
+    _wert = neu;
+    if (alt.text == neu.text) {
+      // Nur die Schreibmarke bewegt (Wischen auf der Leertaste): als Pfeile.
+      final d = neu.selection.baseOffset - alt.selection.baseOffset;
+      if (neu.selection.isCollapsed && d != 0 && neu.composing.isCollapsed) {
+        for (var i = 0; i < d.abs() && i < 50; i++) {
+          _s._antippen(d < 0 ? 0x14b : 0x14d);
+        }
+        _zuruecksetzen();
+      }
+      return;
+    }
+    final a = textAenderung(alt.text, neu.text);
+    final bleibt = (_angekommen.length - a.zurueck).clamp(0, _angekommen.length);
+    final zurueck = _angekommen.sublist(bleibt).where((x) => x).length;
+    _angekommen = [..._angekommen.take(bleibt), ..._s._imeText(zurueck, a.neu)];
+    // Feld wieder auf den Platzhalter, sobald nichts mehr komponiert wird
+    // und es zu kurz oder zu lang geworden ist.
+    final laenge = neu.text.runes.length;
+    if (neu.composing.isCollapsed || !neu.composing.isValid) {
+      if (laenge < 3 || laenge > 40 || !neu.text.startsWith('\u200B\u200B')) _zuruecksetzen();
+    }
+  }
+
+  @override
+  void performAction(TextInputAction action) {
+    if (action != TextInputAction.newline) _s._antippen(0x1c);
+  }
+
+  @override
+  void performPrivateCommand(String action, Map<String, dynamic> data) {}
+  @override
+  void updateFloatingCursor(RawFloatingCursorPoint point) {}
+  @override
+  void showAutocorrectionPromptRect(int start, int end) {}
+
+  @override
+  void connectionClosed() {
+    _v = null;
+    _s._imeGeschlossen();
+  }
+}
 
 /// Zeigt das Bild einer SPICE-Sitzung und schickt Maus, Tastatur und
 /// Beruehrung zurueck.
@@ -27,17 +179,25 @@ import 'tastatur_einstellung.dart';
 /// CVPixelBuffer, Windows PixelBufferTexture, Android SurfaceTexture), gespeist
 /// aus demselben Puffer — die Schnittstelle von rwspice bleibt gleich.
 class SpiceBildschirm extends StatefulWidget {
-  const SpiceBildschirm({super.key, this.hinweis});
+  const SpiceBildschirm({super.key, this.hinweis, this.steuerung, this.ziel});
 
   /// Kurzer Hinweis an die Person (z. B. Zeichen fehlt in der Gastbelegung).
   final void Function(String text)? hinweis;
+
+  /// Bildschirmtastatur, Sondertasten, Fokus (von der Leiste der Seite).
+  final BildschirmSteuerung? steuerung;
+
+  /// Wohin Eingaben gehen; ohne Angabe librwspice.
+  final SpiceZiel? ziel;
 
   @override
   State<SpiceBildschirm> createState() => _SpiceBildschirmState();
 }
 
 class _SpiceBildschirmState extends State<SpiceBildschirm> with SingleTickerProviderStateMixin {
-  final _spice = RwSpice.i;
+  late final SpiceZiel _spice = widget.ziel ?? RwSpice.i;
+  late final BildschirmSteuerung _steuerung = widget.steuerung ?? BildschirmSteuerung();
+  late final _ime = _Ime(this);
   late final Ticker _takt;
   final _fokus = FocusNode();
   StreamSubscription<SpiceEreignis>? _abo;
@@ -56,6 +216,7 @@ class _SpiceBildschirmState extends State<SpiceBildschirm> with SingleTickerProv
   @override
   void initState() {
     super.initState();
+    _steuerung._s = this;
     _takt = createTicker((_) => _abholen())..start();
     _abo = _spice.ereignisse.listen((e) {
       switch (e.art) {
@@ -221,19 +382,28 @@ class _SpiceBildschirmState extends State<SpiceBildschirm> with SingleTickerProv
     _spice.taste(sc, druck ? 1 : 0);
   }
 
-  /// Gerade gehaltene Umschalter als Gast-Scancodes (Zeichenmodus).
-  List<int> _umschalter() {
+  /// Gerade gehaltene Umschalter als Gast-Scancodes (Zeichenmodus), dazu
+  /// die aus der Sondertasten-Leiste ([klebend], schon verbraucht).
+  List<int> _umschalter(List<int> klebend) {
     final h = HardwareKeyboard.instance;
-    return [
+    final l = [
       if (h.isControlPressed || (h.isMetaPressed && _einstellung.cmdAlsStrg)) scStrg,
       if (h.isAltPressed) scAlt,
       if (h.isShiftPressed) scShift,
       if (h.isMetaPressed && !_einstellung.cmdAlsStrg) scSuper,
     ];
+    for (final k in klebend) {
+      if (!l.contains(k)) l.add(k);
+    }
+    return l;
   }
 
   KeyEventResult _tastatur(FocusNode n, KeyEvent e) {
     if (_einstellung.modus == TastaturModus.direkt) return _direkt(e);
+    return _zeichen(e);
+  }
+
+  KeyEventResult _zeichen(KeyEvent e) {
     final k = e.physicalKey;
 
     if (e is KeyUpEvent) {
@@ -250,15 +420,19 @@ class _SpiceBildschirmState extends State<SpiceBildschirm> with SingleTickerProv
 
     // Umschalter selbst und die Feststelltaste: nichts senden (das Zeichen
     // bringt sie schon mit).
-    if (istUmschalter(k) || k == PhysicalKeyboardKey.capsLock) return KeyEventResult.handled;
+    if (istUmschalterEreignis(e) || k == PhysicalKeyboardKey.capsLock || e.logicalKey == LogicalKeyboardKey.capsLock) {
+      return KeyEventResult.handled;
+    }
 
     final h = HardwareKeyboard.instance;
     // AltGr meldet Windows als Strg+Alt: mit druckbarem Zeichen ist das Text,
     // kein Kurzbefehl.
     final altGr = h.isControlPressed && h.isAltPressed && druckbar(e.character);
-    final kurzbefehl = (h.isControlPressed || h.isMetaPressed) && !altGr;
+    final klebend = _steuerung._gehalten.isNotEmpty;
+    final kurzbefehl = ((h.isControlPressed || h.isMetaPressed) && !altGr) || klebend;
+    final steuer = istSteuertasteEreignis(e);
 
-    if (istSteuertaste(k) || kurzbefehl) {
+    if (steuer || kurzbefehl) {
       if (e is KeyRepeatEvent) {
         final sc = _gedruecktVon(k);
         if (sc != null) _tasteSenden(sc, true);
@@ -268,13 +442,15 @@ class _SpiceBildschirmState extends State<SpiceBildschirm> with SingleTickerProv
       // Zeichen ergibt (Strg+Z auf CH-Mac → Strg+Z im Gast, egal welche
       // Belegung er hat).
       int? sc;
-      if (!istSteuertaste(k)) {
+      if (!steuer) {
         final label = e.logicalKey.keyLabel;
         if (label.runes.length == 1) sc = grundTaste(_einstellung.belegung, label.toLowerCase().runes.first);
+        final c = e.character;
+        if (sc == null && druckbar(c)) sc = grundTaste(_einstellung.belegung, c!.toLowerCase().runes.first);
       }
-      sc ??= scancode(k, macIsoTausch: _einstellung.macIsoTausch);
+      sc ??= tastenScancode(e, macIsoTausch: _einstellung.macIsoTausch);
       if (sc == null) return KeyEventResult.ignored;
-      final mods = _umschalter();
+      final mods = _umschalter(_steuerung._verbrauchen());
       for (final m in mods) {
         _tasteSenden(m, true);
       }
@@ -288,35 +464,122 @@ class _SpiceBildschirmState extends State<SpiceBildschirm> with SingleTickerProv
     // am Mac). Tottaste selbst liefert kein Zeichen: nichts senden.
     final c = e.character;
     if (!druckbar(c)) return KeyEventResult.handled;
-    final folge = zeichenFolge(_einstellung.belegung, c!.runes.first);
+    _zeichenSenden(c!.runes.first);
+    return KeyEventResult.handled;
+  }
+
+  /// Ein Zeichen in der Belegung des Gasts tippen (mit gehaltenen
+  /// Umschaltern aus der Leiste, siehe [zeichenTasten]).
+  bool _zeichenSenden(int zeichen) {
+    final klebend = _steuerung._verbrauchen();
+    final folge = zeichenTasten(_einstellung.belegung, zeichen, umschalter: klebend);
     if (folge == null) {
-      Protokoll.schreiben('Tastatur: Zeichen "$c" (U+${c.runes.first.toRadixString(16).toUpperCase()}) '
-          'ist in der Gastbelegung ${_einstellung.belegung.kennung} nicht vorhanden');
+      final c = String.fromCharCode(zeichen);
+      Protokoll.schreiben(
+        'Tastatur: Zeichen "$c" (U+${zeichen.toRadixString(16).toUpperCase()}) '
+        'ist in der Gastbelegung ${_einstellung.belegung.kennung} nicht vorhanden',
+      );
       if (_gemeldet.add(c)) {
         widget.hinweis?.call('Zeichen „$c“ ist in der Belegung ${_einstellung.belegung.name} nicht vorhanden.');
       }
-      return KeyEventResult.handled;
+      return false;
     }
-    _spice.feststellAus();
+    if (klebend.isEmpty) _spice.feststellAus();
     for (final t in folge) {
       _tasteSenden(t.sc, t.druck);
     }
-    return KeyEventResult.handled;
+    return true;
   }
 
   final _scVon = <PhysicalKeyboardKey, int>{};
   int? _gedruecktVon(PhysicalKeyboardKey k) => _scVon[k];
 
   KeyEventResult _direkt(KeyEvent e) {
-    final sc = scancode(e.physicalKey,
-        macIsoTausch: _einstellung.macIsoTausch, cmdAlsStrg: _einstellung.cmdAlsStrg);
+    final hid = scancode(e.physicalKey) != null;
+    // Ohne Scancode (Bildschirmtastatur, adb): Zeichen wie im Zeichenmodus,
+    // Steuertasten ueber die logische Taste.
+    if (!hid && !istSteuertasteEreignis(e) && !istUmschalterEreignis(e)) return _zeichen(e);
+    final sc = tastenScancode(e, macIsoTausch: _einstellung.macIsoTausch, cmdAlsStrg: _einstellung.cmdAlsStrg);
     if (sc == null) return KeyEventResult.ignored;
-    if (e is KeyDownEvent || e is KeyRepeatEvent) {
+    if (e is KeyDownEvent) {
+      final mods = istUmschalterEreignis(e) ? const <int>[] : _steuerung._verbrauchen();
+      for (final m in mods) {
+        _tasteSenden(m, true);
+      }
+      if (mods.isNotEmpty) _gesendet[e.physicalKey] = mods;
+      _tasteSenden(sc, true);
+    } else if (e is KeyRepeatEvent) {
       _tasteSenden(sc, true);
     } else if (e is KeyUpEvent) {
       _tasteSenden(sc, false);
+      for (final m in (_gesendet.remove(e.physicalKey) ?? const <int>[]).reversed) {
+        _tasteSenden(m, false);
+      }
     }
     return KeyEventResult.handled;
+  }
+
+  // ── Leiste und Bildschirmtastatur ──────────────────────────────────────
+
+  /// Taste antippen, mit den gehaltenen Umschaltern.
+  void _antippen(int sc) {
+    final mods = _steuerung._verbrauchen();
+    for (final m in mods) {
+      _tasteSenden(m, true);
+    }
+    _tasteSenden(sc, true);
+    _tasteSenden(sc, false);
+    for (final m in mods.reversed) {
+      _tasteSenden(m, false);
+    }
+    _fokusHolen();
+  }
+
+  void _kombination(List<int> tasten) {
+    for (final sc in tasten) {
+      _tasteSenden(sc, true);
+    }
+    for (final sc in tasten.reversed) {
+      _tasteSenden(sc, false);
+    }
+    _fokusHolen();
+  }
+
+  /// Aenderung im Feld der Bildschirmtastatur: [zurueck] Rueckschritte,
+  /// dann [text] Zeichen fuer Zeichen. Rueckgabe: je Zeichen, ob es ankam.
+  List<bool> _imeText(int zurueck, String text) {
+    for (var i = 0; i < zurueck; i++) {
+      _antippen(0x0e);
+    }
+    return [
+      for (final r in text.runes) r == 0x200B || _zeichenSenden(r), // 0x200B: Platzhalter
+    ];
+  }
+
+  /// Bildschirmtastatur nur auf Telefonen und Tablets; am Rechner bleibt
+  /// es bei der Leiste (die echte Tastatur geht ohnehin).
+  static bool get _mitIme =>
+      defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.iOS;
+
+  void _imeSchalten(bool an) {
+    if (!_mitIme) return;
+    if (an) {
+      _fokus.requestFocus();
+      _ime.oeffnen(View.maybeOf(context)?.viewId);
+    } else {
+      _ime.schliessen();
+    }
+  }
+
+  void _imeGeschlossen() {
+    _steuerung._imeZu();
+  }
+
+  void _fokusHolen() {
+    if (!mounted) return;
+    _fokus.requestFocus();
+    // Nach einem Blatt ist die Verbindung zur Bildschirmtastatur weg.
+    if (_steuerung._tastatur && _mitIme && !_ime.offen) _ime.oeffnen(View.maybeOf(context)?.viewId);
   }
 
   /// Fokus weg (z. B. Fenster gewechselt): gedrueckte Tasten loslassen, sonst
@@ -340,37 +603,45 @@ class _SpiceBildschirmState extends State<SpiceBildschirm> with SingleTickerProv
       onFocusChange: (an) {
         if (!an) _allesLoslassen();
       },
-      child: LayoutBuilder(builder: (context, c) {
-        final g = Size(c.maxWidth, c.maxHeight);
-        return Listener(
-          onPointerHover: (e) => _bewegen(e, g),
-          onPointerMove: (e) => _bewegen(e, g),
-          onPointerDown: (e) => _taste(e, g, true),
-          onPointerUp: (e) => _taste(e, g, false),
-          onPointerSignal: _rad,
-          onPointerPanZoomStart: _panStart,
-          onPointerPanZoomUpdate: _panUpdate,
-          child: ColoredBox(
-            color: Colors.black,
-            child: SizedBox.expand(
-              child: bild == null
-                  ? const Center(
-                      child: Column(mainAxisSize: MainAxisSize.min, children: [
-                        CircularProgressIndicator(color: Colors.white70),
-                        SizedBox(height: 16),
-                        Text('Bild wird aufgebaut …', style: TextStyle(color: Colors.white70)),
-                      ]),
-                    )
-                  : RawImage(image: bild, fit: BoxFit.contain, filterQuality: FilterQuality.medium),
+      child: LayoutBuilder(
+        builder: (context, c) {
+          final g = Size(c.maxWidth, c.maxHeight);
+          return Listener(
+            onPointerHover: (e) => _bewegen(e, g),
+            onPointerMove: (e) => _bewegen(e, g),
+            onPointerDown: (e) => _taste(e, g, true),
+            onPointerUp: (e) => _taste(e, g, false),
+            onPointerSignal: _rad,
+            onPointerPanZoomStart: _panStart,
+            onPointerPanZoomUpdate: _panUpdate,
+            child: ColoredBox(
+              color: Colors.black,
+              child: SizedBox.expand(
+                child: bild == null
+                    ? const Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            CircularProgressIndicator(color: Colors.white70),
+                            SizedBox(height: 16),
+                            Text('Bild wird aufgebaut …', style: TextStyle(color: Colors.white70)),
+                          ],
+                        ),
+                      )
+                    : RawImage(image: bild, fit: BoxFit.contain, filterQuality: FilterQuality.medium),
+              ),
             ),
-          ),
-        );
-      }),
+          );
+        },
+      ),
     );
   }
 
   @override
   void dispose() {
+    _ime.schliessen();
+    if (_steuerung._s == this) _steuerung._s = null;
+    if (widget.steuerung == null) _steuerung.dispose();
     _allesLoslassen();
     _takt.dispose();
     _abo?.cancel();

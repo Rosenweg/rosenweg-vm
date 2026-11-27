@@ -14,9 +14,12 @@ import '../spice/bildschirm.dart';
 import '../spice/belegungen.dart';
 import '../spice/scancodes.dart';
 import '../spice/tastatur_einstellung.dart';
+import 'sondertasten_leiste.dart';
 
 /// Der Bildschirm eines Computers. Oben eine schmale Leiste mit dem Noetigsten:
-/// Ton, Mikrofon, USB, Strg+Alt+Entf. Alles andere gehoert in den Gast.
+/// Tastatur (immer sichtbar, oeffnet Bildschirmtastatur und Sondertasten),
+/// Ton, Mikrofon, USB, Ordner, Einstellungen, Strg+Alt+Entf. Alles andere
+/// gehoert in den Gast.
 class BildschirmSeite extends StatefulWidget {
   const BildschirmSeite({super.key, required this.computer, required this.zustand});
   final Computer computer;
@@ -28,8 +31,12 @@ class BildschirmSeite extends StatefulWidget {
 
 enum _Stand { verbinden, verbunden, getrennt }
 
-class _BildschirmSeiteState extends State<BildschirmSeite> {
+class _BildschirmSeiteState extends State<BildschirmSeite> with WidgetsBindingObserver {
   final _spice = RwSpice.i;
+  final _steuerung = BildschirmSteuerung();
+
+  /// Bildschirmtastatur war schon sichtbar (fuer "System hat sie geschlossen").
+  bool _imeSichtbar = false;
   StreamSubscription<SpiceEreignis>? _abo;
   _Stand _stand = _Stand.verbinden;
   String? _meldung;
@@ -78,6 +85,7 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _abo = _spice.ereignisse.listen(_ereignis);
     TastaturEinstellung.i.laden();
     _verbinden();
@@ -179,6 +187,34 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
     }
   }
 
+  /// Schliesst die Person die Bildschirmtastatur selbst (Zurueck-Taste,
+  /// Pfeil nach unten), geht auch die Sondertasten-Leiste zu.
+  @override
+  void didChangeMetrics() {
+    if (!mounted) return;
+    final unten = View.of(context).viewInsets.bottom;
+    if (unten > 0) {
+      _imeSichtbar = true;
+    } else if (_imeSichtbar) {
+      _imeSichtbar = false;
+      if (_steuerung.tastaturOffen && (Platform.isAndroid || Platform.isIOS)) _steuerung.tastatur(false);
+    }
+  }
+
+  /// Blatt von unten: scrollbar, nie unter der Navigationsleiste, danach
+  /// Tastaturfokus zurueck aufs Bild.
+  Future<void> _blatt(WidgetBuilder inhalt) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      useSafeArea: true,
+      constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.85),
+      builder: (context) => SafeArea(top: false, child: inhalt(context)),
+    );
+    _steuerung.fokus();
+  }
+
   void _tonSetzen() => _spice.ton(wiedergabe: _ton, mikrofon: _mikrofon);
 
   Future<void> _usbMenue() async {
@@ -186,9 +222,7 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
     for (final g in liste.where((g) => g.macTreiber.isNotEmpty)) {
       Protokoll.schreiben('USB ${g.id} (${g.name}) nicht angeboten: ${g.macTreiber} (macOS-Treiber)');
     }
-    await showModalBottomSheet<void>(
-      context: context,
-      builder: (context) => StatefulBuilder(builder: (context, neu) {
+    await _blatt((context) => StatefulBuilder(builder: (context, neu) {
         final aktuell = _spice.usbListe();
         return ListView(shrinkWrap: true, children: [
           const ListTile(title: Text('USB-Geräte an diesen Computer weitergeben')),
@@ -211,8 +245,7 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
                   : null,
             ),
         ]);
-      }),
-    );
+      }));
   }
 
   /// Ordner (oder Stick unter /Volumes) per SPICE-WebDAV an den Gast geben.
@@ -223,10 +256,7 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
       return;
     }
     if (_fehlt(SpiceKanal.ordner)) return _hinweis(SpiceKanal.ordner);
-    await showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => StatefulBuilder(
+    await _blatt((context) => StatefulBuilder(
         builder: (context, neu) => ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(16, 0, 16, 16), children: [
           Text('Ordner freigeben', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
@@ -273,17 +303,13 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ]),
-      ),
-    );
+      ));
   }
 
   /// Tastatur: Modus, Gastbelegung (mit Suche), Cmd als Strg, Mac-ISO.
   Future<void> _tastaturMenue() async {
     final t = TastaturEinstellung.i;
-    await showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => ListenableBuilder(
+    await _blatt((context) => ListenableBuilder(
         listenable: t,
         builder: (context, _) => ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(16, 0, 16, 16), children: [
           Text('Tastatur', style: Theme.of(context).textTheme.titleMedium),
@@ -331,8 +357,7 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
               ),
           ],
         ]),
-      ),
-    );
+      ));
   }
 
   Future<GastBelegung?> _belegungWaehlen(GastBelegung aktuell) => showDialog<GastBelegung>(
@@ -373,14 +398,7 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
         },
       );
 
-  void _strgAltEntf() {
-    for (final sc in strgAltEntf) {
-      _spice.taste(sc, 1);
-    }
-    for (final sc in strgAltEntf.reversed) {
-      _spice.taste(sc, 0);
-    }
-  }
+  void _strgAltEntf() => _steuerung.kombination(strgAltEntf);
 
   @override
   Widget build(BuildContext context) {
@@ -389,7 +407,19 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
         toolbarHeight: 44,
         // Name des Computers ganz (Tooltip), auch wenn er schmal gekuerzt wird.
         title: Tooltip(message: widget.computer.name, child: Text(widget.computer.name)),
-        actions: _schmalOderBreit(context, [
+        actions: _schmalOderBreit(context, immer: [
+          ListenableBuilder(
+            listenable: _steuerung,
+            builder: (context, _) => IconButton(
+              key: const ValueKey('tastatur-knopf'),
+              tooltip: _steuerung.tastaturOffen ? 'Tastatur schliessen' : 'Tastatur',
+              isSelected: _steuerung.tastaturOffen,
+              icon: const Icon(Icons.keyboard),
+              selectedIcon: const Icon(Icons.keyboard_hide),
+              onPressed: () => _steuerung.tastatur(!_steuerung.tastaturOffen),
+            ),
+          ),
+        ], [
           // Fehlt ein Kanal, bleibt der Knopf sichtbar, aber grau; ein Druck
           // sagt warum (statt still nichts zu tun).
           if (_fehlt(SpiceKanal.wiedergabe))
@@ -437,13 +467,15 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
                 color: !_spice.ordnerMoeglich || _fehlt(SpiceKanal.ordner) ? Theme.of(context).disabledColor : null),
             onPressed: _ordnerMenue,
           ),
-          IconButton(tooltip: 'Tastatur', icon: const Icon(Icons.keyboard_alt_outlined), onPressed: _tastaturMenue),
-          IconButton(tooltip: 'Strg+Alt+Entf senden', icon: const Icon(Icons.keyboard), onPressed: _strgAltEntf),
+          IconButton(tooltip: 'Einstellungen', icon: const Icon(Icons.tune), onPressed: _tastaturMenue),
+          IconButton(tooltip: 'Strg+Alt+Entf senden', icon: const Icon(Icons.key), onPressed: _strgAltEntf),
         ]),
       ),
-      body: Stack(children: [
+      body: Column(children: [
+        Expanded(child: Stack(children: [
         Positioned.fill(
           child: SpiceBildschirm(
+            steuerung: _steuerung,
             hinweis: (t) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(t))),
           ),
         ),
@@ -472,6 +504,12 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
               ),
             ),
           ),
+        ])),
+        ListenableBuilder(
+          listenable: _steuerung,
+          builder: (context, _) =>
+              _steuerung.tastaturOffen ? SondertastenLeiste(steuerung: _steuerung) : const SizedBox.shrink(),
+        ),
       ]),
     );
   }
@@ -479,13 +517,18 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
   /// Schmal (unter 600 px) passen die sieben Knoepfe nicht neben den Namen
   /// (Test win11-1 bei 400 px: „dis…“). Dann stehen sie mit Text in einem
   /// Menue „Mehr“; breit bleiben sie als Symbole.
-  List<Widget> _schmalOderBreit(BuildContext context, List<IconButton> knoepfe) {
-    if (Fensterklasse.von(context) != Fensterklasse.kompakt) return knoepfe;
+  List<Widget> _schmalOderBreit(BuildContext context, List<IconButton> knoepfe, {List<Widget> immer = const []}) {
+    if (Fensterklasse.von(context) != Fensterklasse.kompakt) return [...immer, ...knoepfe];
     return [
+      ...immer,
       PopupMenuButton<int>(
         tooltip: 'Mehr',
         icon: const Icon(Icons.more_vert),
-        onSelected: (i) => knoepfe[i].onPressed?.call(),
+        onCanceled: _steuerung.fokus,
+        onSelected: (i) {
+          knoepfe[i].onPressed?.call();
+          _steuerung.fokus();
+        },
         itemBuilder: (_) => [
           for (var i = 0; i < knoepfe.length; i++)
             PopupMenuItem(
@@ -499,6 +542,8 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _steuerung.dispose();
     _kanalWarten?.cancel();
     _abo?.cancel();
     _spice.trennen();
