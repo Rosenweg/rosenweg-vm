@@ -64,6 +64,7 @@ class Netzlage extends ChangeNotifier {
   /// Schliessen meldet die App den Peer ab; stuerzt sie ab, entfernt ihn der
   /// Gateway nach wenigen Minuten ohne Lebenszeichen.
   Future<void> aufbauen() async {
+    final nr = ++_versuch;
     lage = Lage.unbekannt;
     notifyListeners();
     _geraet ??= await _geraetKennung();
@@ -89,6 +90,7 @@ class Netzlage extends ChangeNotifier {
         a = await anfragen(token);
       }
     }
+    _nochAktuell(nr);
     final j = a.json is Map<String, dynamic> ? a.json as Map<String, dynamic> : const <String, dynamic>{};
     if (a.status != 200) throw TunnelFehler((j['error'] as String?) ?? 'Verbindung abgelehnt (${a.status})', status: a.status);
     final antwort = j['tunnel'] as Map<String, dynamic>;
@@ -109,6 +111,13 @@ class Netzlage extends ChangeNotifier {
     spiceProxy = 'http://rw:${start.geheimnis}@127.0.0.1:${start.port}';
 
     final l = await _endpunktWaehlen(g);
+    if (nr != _versuch) {
+      // Inzwischen abgebaut (Zeitlimit in AppZustand, Abmelden): den eben
+      // gestarteten Tunnel nicht offen lassen.
+      RwTunnel.i.stoppen();
+      spiceProxy = null;
+      _nochAktuell(nr);
+    }
     if (l == null) {
       RwTunnel.i.stoppen();
       spiceProxy = null;
@@ -121,6 +130,14 @@ class Netzlage extends ChangeNotifier {
     _waechterStarten();
     _netzBeobachten();
     notifyListeners();
+  }
+
+  /// Zaehlt jeden Aufbau; [abbauen] zaehlt weiter. Ein Aufbau, der nach
+  /// seinem Zeitlimit doch noch fertig wird, merkt so, dass er verworfen ist.
+  int _versuch = 0;
+
+  void _nochAktuell(int nr) {
+    if (nr != _versuch) throw TunnelFehler('Aufbau abgebrochen', technisch: true);
   }
 
   String _intern = '', _extern = '';
@@ -183,6 +200,7 @@ class Netzlage extends ChangeNotifier {
   /// Beim Schliessen und Abmelden: Peer beim Gateway abmelden (Schluessel
   /// sofort ungueltig), dann Tunnel zu.
   Future<void> abbauen() async {
+    _versuch++;
     _waechter?.cancel();
     _netzVerzoegerung?.cancel();
     await _netzAbo?.cancel();
