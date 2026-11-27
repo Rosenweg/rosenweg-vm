@@ -10,6 +10,7 @@ import '../app_zustand.dart';
 import '../native/rwspice.dart';
 import '../protokoll.dart';
 import '../gateway/gateway.dart';
+import '../spice/bedien_einstellung.dart';
 import '../spice/bildschirm.dart';
 import '../spice/belegungen.dart';
 import '../spice/scancodes.dart';
@@ -88,6 +89,7 @@ class _BildschirmSeiteState extends State<BildschirmSeite> with WidgetsBindingOb
     WidgetsBinding.instance.addObserver(this);
     _abo = _spice.ereignisse.listen(_ereignis);
     TastaturEinstellung.i.laden();
+    BedienEinstellung.i.laden();
     _verbinden();
   }
 
@@ -151,6 +153,7 @@ class _BildschirmSeiteState extends State<BildschirmSeite> with WidgetsBindingOb
       case SpiceEreignisArt.bildGroesse:
         if (e.art == SpiceEreignisArt.bildGroesse) {
           _kanaeleFestlegen();
+          _ersteHilfe();
         } else {
           _kanalWarten ??= Timer(const Duration(seconds: 3), _kanaeleFestlegen);
         }
@@ -306,11 +309,38 @@ class _BildschirmSeiteState extends State<BildschirmSeite> with WidgetsBindingOb
       ));
   }
 
-  /// Tastatur: Modus, Gastbelegung (mit Suche), Cmd als Strg, Mac-ISO.
+  /// Telefon/Tablet: beim ersten Bild einmal kurz die Gesten zeigen.
+  void _ersteHilfe() {
+    if (!(Platform.isAndroid || Platform.isIOS) || BedienEinstellung.i.hilfeGesehen || _hilfeOffen) return;
+    _hilfeOffen = true;
+    Future<void>.delayed(const Duration(milliseconds: 600), () async {
+      if (!mounted) return;
+      await _gestenHilfe();
+      await BedienEinstellung.i.setzen(hilfeGesehen: true);
+    });
+  }
+
+  bool _hilfeOffen = false;
+
+  Future<void> _gestenHilfe() async {
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Bedienung mit dem Finger'),
+        content: const SingleChildScrollView(child: GestenHilfe()),
+        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Verstanden'))],
+      ),
+    );
+    _steuerung.fokus();
+  }
+
+  /// Einstellungen: Tastatur (Modus, Gastbelegung mit Suche, Cmd als Strg,
+  /// Mac-ISO) und Beruehrung (direkt / Touchpad, Hilfe).
   Future<void> _tastaturMenue() async {
     final t = TastaturEinstellung.i;
+    final bed = BedienEinstellung.i;
     await _blatt((context) => ListenableBuilder(
-        listenable: t,
+        listenable: Listenable.merge([t, bed]),
         builder: (context, _) => ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(16, 0, 16, 16), children: [
           Text('Tastatur', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 12),
@@ -356,6 +386,34 @@ class _BildschirmSeiteState extends State<BildschirmSeite> with WidgetsBindingOb
                 onChanged: (v) => t.setzen(macIsoTausch: v),
               ),
           ],
+          const Divider(height: 24),
+          Text('Berührung', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 12),
+          SegmentedButton<TouchModus>(
+            key: const ValueKey('touch-modus'),
+            segments: const [
+              ButtonSegment(value: TouchModus.direkt, icon: Icon(Icons.touch_app), label: Text('Direkt')),
+              ButtonSegment(value: TouchModus.touchpad, icon: Icon(Icons.mouse), label: Text('Touchpad')),
+            ],
+            selected: {bed.touch},
+            onSelectionChanged: (m) => bed.setzen(touch: m.first),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            bed.touch == TouchModus.direkt
+                ? 'Tippen klickt genau dort, wo der Finger ist.'
+                : 'Der Finger schiebt den Mauszeiger, Tippen klickt dort, wo der Zeiger steht.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.help_outline),
+            title: const Text('Gesten anzeigen'),
+            onTap: () {
+              Navigator.pop(context);
+              _gestenHilfe();
+            },
+          ),
         ]),
       ));
   }
@@ -549,4 +607,36 @@ class _BildschirmSeiteState extends State<BildschirmSeite> with WidgetsBindingOb
     _spice.trennen();
     super.dispose();
   }
+}
+
+/// Die Gesten in Kurzform (Hilfe beim ersten Start und in den Einstellungen).
+class GestenHilfe extends StatelessWidget {
+  const GestenHilfe({super.key});
+
+  static const zeilen = [
+    (Icons.touch_app, 'Tippen', 'Klick'),
+    (Icons.ads_click, 'Zweimal tippen', 'Doppelklick'),
+    (Icons.back_hand_outlined, 'Lange drücken', 'Rechtsklick'),
+    (Icons.swipe, 'Ziehen', 'Markieren, verschieben'),
+    (Icons.swipe_vertical, 'Zwei Finger ziehen', 'Scrollen'),
+    (Icons.pinch, 'Zwei Finger spreizen', 'Vergrössern, dann mit einem Finger verschieben'),
+    (Icons.keyboard, 'Tastatur oben', 'Tippen, dazu Esc, Strg, Pfeile, F-Tasten'),
+  ];
+
+  @override
+  Widget build(BuildContext context) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (final (icon, geste, wirkung) in zeilen)
+            ListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(icon),
+              title: Text(geste),
+              subtitle: Text(wirkung),
+            ),
+          Text('Touchpad-Modus und diese Hilfe: Einstellungen (Regler oben).',
+              style: Theme.of(context).textTheme.bodySmall),
+        ],
+      );
 }

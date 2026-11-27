@@ -13,6 +13,7 @@ import 'package:flutter/services.dart';
 
 import '../native/rwspice.dart';
 import '../protokoll.dart';
+import 'bedien_einstellung.dart';
 import 'bildschirm_tastatur.dart';
 import 'scancodes.dart';
 import 'spice_ziel.dart';
@@ -212,11 +213,13 @@ class _SpiceBildschirmState extends State<SpiceBildschirm> with SingleTickerProv
   bool _absolut = true; // Mausmodus Client (Tablet/Agent) oder Server
   int _tasten = 0;
   final _gedrueckt = <int>{};
+  final _bedienung = BedienEinstellung.i;
 
   @override
   void initState() {
     super.initState();
     _steuerung._s = this;
+    _bedienung.addListener(_bedienungGeaendert);
     _takt = createTicker((_) => _abholen())..start();
     _abo = _spice.ereignisse.listen((e) {
       switch (e.art) {
@@ -227,6 +230,7 @@ class _SpiceBildschirmState extends State<SpiceBildschirm> with SingleTickerProv
           setState(() {
             _breite = e.a;
             _hoehe = e.b;
+            _zeiger = Offset(e.a / 2, e.b / 2);
             _bildWeg();
           });
         case SpiceEreignisArt.bildWeg:
@@ -279,14 +283,41 @@ class _SpiceBildschirmState extends State<SpiceBildschirm> with SingleTickerProv
   }
 
   // ── Eingaben ──────────────────────────────────────────────────────────
+  //
+  // Maus und Stift: wie am Rechner (Position, Tasten, Rad).
+  // Finger (siehe _finger*): Tippen = Klick, Doppeltipp = Doppelklick,
+  // lange druecken = Rechtsklick (mit Vibration), ziehen = mit gedrueckter
+  // Taste ziehen, zwei Finger ziehen = Mausrad, zwei Finger spreizen = Bild
+  // vergroessern; vergroessert verschiebt ein Finger das Bild. Im
+  // Touchpad-Modus schiebt ein Finger den Mauszeiger.
 
-  /// Umrechnung Widget → Gastbildschirm (das Bild ist eingepasst, nicht verzerrt).
+  /// Vergroesserung und Verschiebung des Bilds (logische Pixel im Widget).
+  double _zoom = 1;
+  Offset _versatz = Offset.zero;
+  Size _flaeche = Size.zero;
+
+  /// Mauszeiger im Gast (Touchpad-Modus), in Gastpixeln.
+  Offset _zeiger = Offset.zero;
+
+  /// Eingepasstes Bild ohne Zoom: Massstab und Rand.
+  ({double s, double dx, double dy}) _einpassung(Size g) {
+    final s = math.min(g.width / _breite, g.height / _hoehe);
+    return (s: s, dx: (g.width - _breite * s) / 2, dy: (g.height - _hoehe * s) / 2);
+  }
+
+  /// Umrechnung Widget → Gastbildschirm (eingepasst, nicht verzerrt; mit Zoom).
   Offset? _gast(Offset lokal, Size groesse) {
-    if (_breite == 0) return null;
-    final s = math.min(groesse.width / _breite, groesse.height / _hoehe);
-    final dx = (groesse.width - _breite * s) / 2, dy = (groesse.height - _hoehe * s) / 2;
-    final x = (lokal.dx - dx) / s, y = (lokal.dy - dy) / s;
+    if (_breite == 0 || groesse.isEmpty) return null;
+    final e = _einpassung(groesse);
+    final basis = (lokal - _versatz) / _zoom;
+    final x = (basis.dx - e.dx) / e.s, y = (basis.dy - e.dy) / e.s;
     return Offset(x.clamp(0, _breite - 1).toDouble(), y.clamp(0, _hoehe - 1).toDouble());
+  }
+
+  /// Umgekehrt: Gastpixel → Widget (fuer den Zeiger im Touchpad-Modus).
+  Offset _widget(Offset gast, Size g) {
+    final e = _einpassung(g);
+    return Offset(e.dx + gast.dx * e.s, e.dy + gast.dy * e.s) * _zoom + _versatz;
   }
 
   static int _maske(int flutterTasten) {
@@ -298,6 +329,7 @@ class _SpiceBildschirmState extends State<SpiceBildschirm> with SingleTickerProv
   }
 
   void _bewegen(PointerEvent e, Size g) {
+    if (e.kind == PointerDeviceKind.touch) return _fingerBewegt(e, g);
     if (_absolut) {
       final p = _gast(e.localPosition, g);
       if (p != null) _spice.mausPosition(p.dx.round(), p.dy.round(), _tasten);
@@ -307,16 +339,245 @@ class _SpiceBildschirmState extends State<SpiceBildschirm> with SingleTickerProv
   }
 
   void _taste(PointerEvent e, Size g, bool runter) {
-    _fokus.requestFocus();
+    _fokusHolen();
+    if (e.kind == PointerDeviceKind.touch) return runter ? _fingerRunter(e, g) : _fingerHoch(e, g);
     _bewegen(e, g);
-    final neu = _maske(e.buttons);
-    // Beruehrung meldet keine Taste: als linke Taste werten.
-    final effektiv = e.kind == PointerDeviceKind.touch ? (runter ? 1 : 0) : neu;
+    _tastenSetzen(_maske(e.buttons));
+  }
+
+  void _tastenSetzen(int neu) {
     for (final (bit, spiceTaste) in [(1, 1), (2, 2), (4, 3)]) {
-      final war = _tasten & bit != 0, ist = effektiv & bit != 0;
-      if (war != ist) _spice.mausTaste(spiceTaste, ist ? 1 : 0, effektiv);
+      final war = _tasten & bit != 0, ist = neu & bit != 0;
+      if (war != ist) _spice.mausTaste(spiceTaste, ist ? 1 : 0, neu);
     }
-    _tasten = effektiv;
+    _tasten = neu;
+  }
+
+  /// Mauszeiger im Gast an diese Stelle (Gastpixel).
+  void _hin(Offset gast) {
+    if (_absolut) {
+      _spice.mausPosition(gast.dx.round(), gast.dy.round(), _tasten);
+    }
+  }
+
+  /// Klick ([taste]: 1 links, 4 rechts als Maske) an einer Gaststelle.
+  void _klick(Offset gast, int taste) {
+    _hin(gast);
+    _tastenSetzen(taste);
+    _tastenSetzen(0);
+  }
+
+  // ── Finger ──────────────────────────────────────────────────────────
+
+  static const _ruhe = 12.0; // so weit darf ein Tipp wackeln (logische px)
+  static const _langeDruecken = Duration(milliseconds: 500);
+  static const _doppeltippZeit = Duration(milliseconds: 400);
+  static const _doppeltippWeg = 40.0;
+
+  final _finger = <int, Offset>{};
+  _Geste _geste = _Geste.keine;
+  Offset _fingerStart = Offset.zero;
+  Duration _fingerZeit = Duration.zero;
+  Timer? _langTimer;
+
+  /// Letzter Tipp (Gaststelle, Zeit), damit ein Doppeltipp genau dieselbe
+  /// Stelle trifft und der Gast ihn als Doppelklick erkennt.
+  Offset? _letzterTipp;
+  Duration _letzterTippZeit = Duration.zero;
+
+  // Zwei Finger
+  double _startAbstand = 0, _startZoom = 1;
+  Offset _startMitte = Offset.zero, _startVersatz = Offset.zero, _letzteMitte = Offset.zero;
+
+  bool get _touchpad => _bedienung.touch == TouchModus.touchpad;
+
+  Offset _mitte() {
+    final p = _finger.values.take(2).toList();
+    return (p[0] + p[1]) / 2;
+  }
+
+  double _abstand() {
+    final p = _finger.values.take(2).toList();
+    return (p[0] - p[1]).distance;
+  }
+
+  void _fingerRunter(PointerEvent e, Size g) {
+    _finger[e.pointer] = e.localPosition;
+    if (_finger.length == 1) {
+      _geste = _Geste.wartet;
+      _fingerStart = e.localPosition;
+      _fingerZeit = e.timeStamp;
+      _langTimer?.cancel();
+      _langTimer = Timer(_langeDruecken, () => _langGedrueckt(g));
+    } else if (_finger.length == 2) {
+      _langTimer?.cancel();
+      if (_geste == _Geste.ziehen) _tastenSetzen(0);
+      _geste = _Geste.zweiFinger;
+      _startAbstand = _abstand();
+      _startMitte = _letzteMitte = _mitte();
+      _startZoom = _zoom;
+      _startVersatz = _versatz;
+      _fingerZeit = e.timeStamp;
+      _scrollRest = 0;
+    }
+  }
+
+  void _langGedrueckt(Size g) {
+    if (_geste != _Geste.wartet || !mounted) return;
+    _geste = _Geste.fertig;
+    HapticFeedback.mediumImpact();
+    final p = _touchpad ? _zeiger : _gast(_fingerStart, g);
+    if (p != null) _klick(p, 4);
+  }
+
+  void _fingerBewegt(PointerEvent e, Size g) {
+    if (!_finger.containsKey(e.pointer)) return;
+    final vorher = _finger[e.pointer]!;
+    _finger[e.pointer] = e.localPosition;
+    switch (_geste) {
+      case _Geste.wartet:
+        if ((e.localPosition - _fingerStart).distance < _ruhe) return;
+        _langTimer?.cancel();
+        if (_touchpad) {
+          _geste = _Geste.zeiger;
+          _zeigerSchieben(e.localPosition - _fingerStart, g);
+        } else if (_zoom > 1.01) {
+          _geste = _Geste.verschieben;
+          _verschieben(e.localPosition - _fingerStart, g);
+        } else {
+          // Ziehen mit gedrueckter Taste (markieren, Fenster verschieben)
+          _geste = _Geste.ziehen;
+          final s = _gast(_fingerStart, g);
+          if (s != null) _hin(s);
+          _tastenSetzen(1);
+          final p = _gast(e.localPosition, g);
+          if (p != null) _hin(p);
+        }
+      case _Geste.ziehen:
+        final p = _gast(e.localPosition, g);
+        if (p != null) _hin(p);
+      case _Geste.zeiger:
+        _zeigerSchieben(e.localPosition - vorher, g);
+      case _Geste.verschieben:
+        _verschieben(e.localPosition - vorher, g);
+      case _Geste.zweiFinger || _Geste.scrollen || _Geste.zoomen:
+        if (_finger.length < 2) return;
+        final mitte = _mitte(), abstand = _abstand();
+        if (_geste == _Geste.zweiFinger) {
+          if ((abstand - _startAbstand).abs() > 24) {
+            _geste = _Geste.zoomen;
+          } else if ((mitte - _startMitte).distance > _ruhe) {
+            _geste = _Geste.scrollen;
+            _letzteMitte = mitte;
+          }
+        }
+        if (_geste == _Geste.zoomen && _startAbstand > 0) {
+          final z = (_startZoom * abstand / _startAbstand).clamp(1.0, 5.0);
+          // Die Stelle unter den Fingern bleibt unter den Fingern.
+          setState(() {
+            _zoom = z;
+            _versatz = _begrenzt(mitte - (_startMitte - _startVersatz) * (z / _startZoom), g);
+          });
+        } else if (_geste == _Geste.scrollen) {
+          _scrollRest -= (mitte - _letzteMitte).dy;
+          _letzteMitte = mitte;
+          final n = (_scrollRest / _schrittPx).truncate();
+          if (n != 0) {
+            _scrollRest -= n * _schrittPx;
+            if (_touchpad) {
+              _hin(_zeiger);
+            } else {
+              final p = _gast(_startMitte, g);
+              if (p != null) _hin(p);
+            }
+            _radSchritte(n);
+          }
+        }
+      case _Geste.keine || _Geste.fertig:
+        break;
+    }
+  }
+
+  void _fingerHoch(PointerEvent e, Size g) {
+    if (!_finger.containsKey(e.pointer)) return;
+    _finger.remove(e.pointer);
+    final abgebrochen = e is PointerCancelEvent;
+    switch (_geste) {
+      case _Geste.wartet:
+        _langTimer?.cancel();
+        if (!abgebrochen) _tippen(g, e.timeStamp);
+      case _Geste.ziehen:
+        final p = _gast(e.localPosition, g);
+        if (p != null && !abgebrochen) _hin(p);
+        _tastenSetzen(0);
+      case _Geste.zweiFinger:
+        // Kurz mit zwei Fingern getippt: Rechtsklick (wie am Touchpad)
+        if (!abgebrochen && e.timeStamp - _fingerZeit < const Duration(milliseconds: 300)) {
+          final p = _touchpad ? _zeiger : _gast(_startMitte, g);
+          if (p != null) {
+            HapticFeedback.mediumImpact();
+            _klick(p, 4);
+          }
+        }
+      default:
+        break;
+    }
+    // Ein Finger von zweien weg: Rest der Geste nicht als neue werten.
+    _geste = _finger.isEmpty ? _Geste.keine : _Geste.fertig;
+  }
+
+  void _tippen(Size g, Duration zeit) {
+    var p = _touchpad ? _zeiger : _gast(_fingerStart, g);
+    if (p == null) return;
+    final l = _letzterTipp;
+    if (l != null &&
+        zeit - _letzterTippZeit < _doppeltippZeit &&
+        (_widget(l, g) - _widget(p, g)).distance < _doppeltippWeg) {
+      p = l; // Doppeltipp: dieselbe Stelle, damit der Gast einen Doppelklick sieht
+      _letzterTipp = null;
+    } else {
+      _letzterTipp = p;
+    }
+    _letzterTippZeit = zeit;
+    _klick(p, 1);
+  }
+
+  void _zeigerSchieben(Offset delta, Size g) {
+    if (_breite == 0) return;
+    // Der Zeiger folgt dem Finger auf dem Bildschirm (1:1 im Bild).
+    final s = _einpassung(g).s * _zoom;
+    final d = delta / s;
+    final neu = Offset((_zeiger.dx + d.dx).clamp(0, _breite - 1).toDouble(), (_zeiger.dy + d.dy).clamp(0, _hoehe - 1).toDouble());
+    if (!_absolut) _spice.mausBewegung((neu.dx - _zeiger.dx).round(), (neu.dy - _zeiger.dy).round(), _tasten);
+    setState(() => _zeiger = neu);
+    _hin(neu);
+    // Vergroessert: das Bild laeuft mit, wenn der Zeiger an den Rand kommt.
+    if (_zoom > 1.01) {
+      final w = _widget(neu, g);
+      var v = Offset.zero;
+      if (w.dx < 24) v += Offset(24 - w.dx, 0);
+      if (w.dx > g.width - 24) v -= Offset(w.dx - g.width + 24, 0);
+      if (w.dy < 24) v += Offset(0, 24 - w.dy);
+      if (w.dy > g.height - 24) v -= Offset(0, w.dy - g.height + 24);
+      if (v != Offset.zero) _verschieben(v, g);
+    }
+  }
+
+  void _verschieben(Offset delta, Size g) => setState(() => _versatz = _begrenzt(_versatz + delta, g));
+
+  /// Das vergroesserte Bild deckt die Flaeche immer ganz (kein Rand ins Leere).
+  Offset _begrenzt(Offset v, Size g) => Offset(
+        v.dx.clamp(g.width * (1 - _zoom), 0).toDouble(),
+        v.dy.clamp(g.height * (1 - _zoom), 0).toDouble(),
+      );
+
+  void _zoomZurueck() => setState(() {
+        _zoom = 1;
+        _versatz = Offset.zero;
+      });
+
+  void _bedienungGeaendert() {
+    if (mounted) setState(() {});
   }
 
   // ── Scrollen ──────────────────────────────────────────────────────────
@@ -606,11 +867,20 @@ class _SpiceBildschirmState extends State<SpiceBildschirm> with SingleTickerProv
       child: LayoutBuilder(
         builder: (context, c) {
           final g = Size(c.maxWidth, c.maxHeight);
+          if (g != _flaeche) {
+            // Flaeche anders (Drehen, Tastatur): Zoom behalten, aber im Rahmen.
+            _flaeche = g;
+            _versatz = _begrenzt(_versatz, g);
+          }
+          final zeigerDa = _touchpad && bild != null && _breite > 0;
           return Listener(
             onPointerHover: (e) => _bewegen(e, g),
             onPointerMove: (e) => _bewegen(e, g),
             onPointerDown: (e) => _taste(e, g, true),
             onPointerUp: (e) => _taste(e, g, false),
+            onPointerCancel: (e) {
+              if (e.kind == PointerDeviceKind.touch) _fingerHoch(e, g);
+            },
             onPointerSignal: _rad,
             onPointerPanZoomStart: _panStart,
             onPointerPanZoomUpdate: _panUpdate,
@@ -628,7 +898,42 @@ class _SpiceBildschirmState extends State<SpiceBildschirm> with SingleTickerProv
                           ],
                         ),
                       )
-                    : RawImage(image: bild, fit: BoxFit.contain, filterQuality: FilterQuality.medium),
+                    : Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          ClipRect(
+                            child: Transform(
+                              transform: Matrix4.translationValues(_versatz.dx, _versatz.dy, 0) *
+                                  Matrix4.diagonal3Values(_zoom, _zoom, 1),
+                              child: RawImage(
+                                image: bild,
+                                fit: BoxFit.contain,
+                                filterQuality: _zoom > 1.5 ? FilterQuality.none : FilterQuality.medium,
+                              ),
+                            ),
+                          ),
+                          if (zeigerDa)
+                            Positioned(
+                              left: _widget(_zeiger, g).dx,
+                              top: _widget(_zeiger, g).dy,
+                              child: const IgnorePointer(
+                                child: CustomPaint(key: ValueKey('touchpad-zeiger'), size: Size(18, 26), painter: _Zeiger()),
+                              ),
+                            ),
+                          if (_zoom > 1.01)
+                            Positioned(
+                              right: 8,
+                              top: 8,
+                              child: ActionChip(
+                                key: const ValueKey('zoom-zurueck'),
+                                avatar: const Icon(Icons.zoom_out_map, size: 18),
+                                label: Text('${(_zoom * 100).round()} %'),
+                                tooltip: 'Ganzes Bild zeigen',
+                                onPressed: _zoomZurueck,
+                              ),
+                            ),
+                        ],
+                      ),
               ),
             ),
           );
@@ -639,6 +944,8 @@ class _SpiceBildschirmState extends State<SpiceBildschirm> with SingleTickerProv
 
   @override
   void dispose() {
+    _langTimer?.cancel();
+    _bedienung.removeListener(_bedienungGeaendert);
     _ime.schliessen();
     if (_steuerung._s == this) _steuerung._s = null;
     if (widget.steuerung == null) _steuerung.dispose();
@@ -652,4 +959,31 @@ class _SpiceBildschirmState extends State<SpiceBildschirm> with SingleTickerProv
     calloc.free(_h);
     super.dispose();
   }
+}
+
+enum _Geste { keine, wartet, ziehen, zeiger, verschieben, zweiFinger, scrollen, zoomen, fertig }
+
+/// Mauszeiger im Touchpad-Modus: Pfeil mit Spitze oben links.
+class _Zeiger extends CustomPainter {
+  const _Zeiger();
+  @override
+  void paint(Canvas canvas, Size size) {
+    final p = Path()
+      ..moveTo(0, 0)
+      ..lineTo(0, 20)
+      ..lineTo(5, 15)
+      ..lineTo(9, 24)
+      ..lineTo(12.5, 22.5)
+      ..lineTo(8.5, 14)
+      ..lineTo(15, 14)
+      ..close();
+    canvas.drawPath(p, Paint()..color = Colors.white);
+    canvas.drawPath(p, Paint()
+      ..color = Colors.black
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5);
+  }
+
+  @override
+  bool shouldRepaint(_Zeiger old) => false;
 }
