@@ -28,6 +28,7 @@ concurrency:
 
 permissions:
   contents: read
+  packages: read   # commons-rosenweg (ch.rosenweg4303:cloud/updater) aus GitHub Packages
 
 env:
   GO_VERSION: "1.27.4"
@@ -168,6 +169,9 @@ jobs:
           SIGNING_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           SIGNING_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           SIGNING_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          # rosenweg_basis android/build.gradle.kts holt commons-rosenweg aus GitHub
+          # Packages; Maven dort verlangt auch fuer oeffentliche Pakete eine Anmeldung.
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           version=$(sed -n 's/^version: *\([^+ ]*\).*/\1/p' pubspec.yaml)

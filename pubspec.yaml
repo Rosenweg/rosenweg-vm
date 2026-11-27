@@ -47,8 +47,9 @@ dependencies:
   rosenweg_basis:
     git:
       url: https://github.com/Rosenweg/rosenweg-basis.git
-      # v0.4.0 + Updater (rosenweg-basis#11); nach dem Merge auf den Tag v0.5.0 umstellen
-      ref: 1759f1d86cfdbcf3e18eda01db1ea34aa8ed3974
+      # v0.4.0 + Updater (rosenweg-basis#11) + iOS-MainActor-Fix (Zweig ios-mainactor);
+      # nach dem Merge auf den Tag v0.5.0 umstellen
+      ref: 942a355d1a0eb8b6adeb66a1543fb0b448fae355
 
 dev_dependencies:
   flutter_test:
