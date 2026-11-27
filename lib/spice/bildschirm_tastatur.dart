@@ -86,8 +86,8 @@ const sondertasten = <Sondertaste>[
   Sondertaste('→', 0x14d, hilfe: 'Pfeil rechts'),
   Sondertaste('Pos1', 0x147),
   Sondertaste('Ende', 0x14f),
-  Sondertaste('Bild↑', 0x149, hilfe: 'Bild auf'),
-  Sondertaste('Bild↓', 0x151, hilfe: 'Bild ab'),
+  Sondertaste('Bild auf', 0x149),
+  Sondertaste('Bild ab', 0x151),
   Sondertaste('⌫', 0x0e, hilfe: 'Rückschritt'),
   Sondertaste('Entf', 0x153),
 ];

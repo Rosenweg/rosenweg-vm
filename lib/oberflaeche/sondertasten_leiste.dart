@@ -72,6 +72,17 @@ class SondertastenLeiste extends StatelessWidget {
   }
 }
 
+/// Pfeile, Rueckschritt und Umschalt als Symbol: die Zeichen dafuer fehlen
+/// in manchen Schriften.
+const _symbole = {
+  '←': Icons.arrow_back,
+  '↑': Icons.arrow_upward,
+  '↓': Icons.arrow_downward,
+  '→': Icons.arrow_forward,
+  '⌫': Icons.backspace_outlined,
+  '⇧': Icons.keyboard_capslock,
+};
+
 class _Trenner extends StatelessWidget {
   const _Trenner();
   @override
@@ -139,13 +150,15 @@ class _TasteState extends State<_Taste> {
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 10),
                   child: Center(
-                    child: Text(
-                      widget.text,
-                      style: TextStyle(
-                        fontWeight: widget.aktiv ? FontWeight.bold : FontWeight.w500,
-                        color: widget.aktiv ? f.onPrimary : f.onSurface,
-                      ),
-                    ),
+                    child: _symbole[widget.text] != null
+                        ? Icon(_symbole[widget.text], size: 20, color: widget.aktiv ? f.onPrimary : f.onSurface)
+                        : Text(
+                            widget.text,
+                            style: TextStyle(
+                              fontWeight: widget.aktiv ? FontWeight.bold : FontWeight.w500,
+                              color: widget.aktiv ? f.onPrimary : f.onSurface,
+                            ),
+                          ),
                   ),
                 ),
               ),
