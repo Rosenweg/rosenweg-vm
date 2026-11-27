@@ -32,9 +32,21 @@ Das Token des Gateways sieht alle Computer. Dass nichts durchrutscht, sichern
 diese Regeln (alle im Test `gateway_test.go` geprüft):
 
 1. **Zwei Ausweise pro Anfrage:** WireGuard-Absender (Gerät) und
-   Authentik-Token (Person) müssen zur selben Person gehören. Das Token wird
-   über Authentik `userinfo` geprüft und muss für `rosenweg-apps` ausgestellt
-   sein (`aud`/`azp`).
+   Token (Person) müssen zur selben Person gehören. Zwei Arten Token:
+   - **Authentik** (Rosenweg-Konto im Browser, Kerberos an Stationen): über
+     Authentik `userinfo` geprüft, muss für `rosenweg-apps` ausgestellt sein
+     (`aud`/`azp`); Proxmox-Benutzer aus `preferred_username`. Eine Minute gemerkt.
+   - **`rw_app_…`** (Rosenweg-Karte, Anmelde-QR, „Mit dem Handy anmelden“;
+     Website `api/routes/app-karte.js`): Authentik kennt sie nicht. Geprüft
+     mit `GET /api/auth/me` der Haupt-API, direkt im LAN (`ROSENWEG_API_ME`,
+     Standard `http://100.64.2.52:3000/api/auth/me`, in `nftables.conf`
+     freigegeben); Proxmox-Benutzer aus
+     `user.username` (= Authentik-Benutzername, von der API beim Portal-Login
+     übernommen). 30 Sekunden gemerkt, damit ein Entzug schnell greift.
+     401/403 der API → „Anmeldung abgelaufen“; API nicht erreichbar → 503
+     (die App bleibt angemeldet); ohne Benutzernamen → 403 mit Hinweis
+     „einmal mit dem Rosenweg-Konto anmelden“.
+   Die Rechte kommen in beiden Fällen gleich aus Proxmox (Punkt 2).
 2. **Rechte aus Proxmox, für genau diese Person und diesen Computer:**
    `GET /access/permissions?userid=<person>@authentik&path=/vms/<id>` (und
    `/pool/<pool>`, falls der Computer in einem Pool liegt). Sehen braucht
