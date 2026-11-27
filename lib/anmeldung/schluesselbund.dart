@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
@@ -15,13 +17,16 @@ import '../protokoll.dart';
 /// Fruehere Fassungen hatten je Wert einen eigenen Eintrag; die werden beim
 /// ersten Lesen uebernommen und geloescht.
 class Schluesselbund {
-  Schluesselbund([FlutterSecureStorage? speicher])
+  Schluesselbund([FlutterSecureStorage? speicher, Future<bool> Function()? bereit])
       : _speicher = speicher ??
             const FlutterSecureStorage(
               // Ohne den Data-Protection-Schluesselbund: der braucht eine
               // signierte App mit Team-ID, was im Entwicklungsbau fehlt.
               mOptions: MacOsOptions(usesDataProtectionKeychain: false),
-            );
+            ),
+        _bereit = bereit ?? (speicher == null && Platform.isLinux ? linuxBereit : _immer);
+
+  static Future<bool> _immer() async => true;
 
   /// Eine Instanz fuer die ganze App (ein Eintrag, ein Zwischenspeicher).
   static final Schluesselbund i = Schluesselbund();
@@ -34,6 +39,7 @@ class Schluesselbund {
   };
 
   final FlutterSecureStorage _speicher;
+  final Future<bool> Function() _bereit;
   Map<String, String>? _werte;
   Future<Map<String, String>>? _laden;
 
@@ -46,6 +52,8 @@ class Schluesselbund {
   /// das erste Lesen — und mit ihm Anmeldung und Geraete-Kennung. So geht es
   /// weiter, nur ohne Erinnerung ueber das Programmende hinaus; die stille
   /// Anmeldung ueber die Browser-Sitzung (30 Tage) bleibt davon unberuehrt.
+  ///
+  /// Erst nach dem ersten Lesen verlaesslich — das macht der Start ohnehin.
   bool get nurImSpeicher => _nurImSpeicher;
   bool _nurImSpeicher = false;
 
@@ -60,6 +68,10 @@ class Schluesselbund {
 
   Future<Map<String, String>> _ladenOderLeer() async {
     try {
+      if (!await _bereit()) {
+        _versagt('kein Schluesselbund, in den ohne Rueckfrage geschrieben werden kann');
+        return _werte ??= <String, String>{};
+      }
       return await _ladenUndUebernehmen();
     } catch (e) {
       _versagt(e);
@@ -109,6 +121,37 @@ class Schluesselbund {
       }
     } catch (e) {
       _versagt(e);
+    }
+  }
+
+  /// Linux: gibt es einen Schluesselbund, den libsecret ohne Rueckfrage
+  /// benutzen kann? Gefragt wird der Secret Service selbst (ReadAlias
+  /// "default", Standard-API, egal ob gnome-keyring oder KeePassXC).
+  ///
+  /// - kein Dienst: libsecret scheiterte ohnehin (so bisher auf den Stationen).
+  /// - Dienst, aber keine Standard-Sammlung ("/"): libsecret wuerde beim
+  ///   ersten Speichern ein Fenster "Neuen Schluesselbund anlegen" oeffnen und
+  ///   nach einem Passwort fragen. Auf den Stationen ist das genau der Fall,
+  ///   wenn der Anmelde-Schluesselbund nach einem Passwortwechsel im AD
+  ///   beiseitegelegt wurde (os-stationen, schluesselbund-pruefen.sh); bei
+  ///   der naechsten Anmeldung ist er wieder da. Bis dahin lieber nichts
+  ///   merken als fragen.
+  /// - busctl fehlt oder antwortet nicht: libsecret selbst entscheiden lassen.
+  static Future<bool> linuxBereit() async {
+    try {
+      final r = await Process.run('busctl', [
+        '--user', 'call', 'org.freedesktop.secrets', '/org/freedesktop/secrets',
+        'org.freedesktop.Secret.Service', 'ReadAlias', 's', 'default',
+      ]).timeout(const Duration(seconds: 5));
+      if (r.exitCode != 0) {
+        Protokoll.schreiben('Secret Service antwortet nicht: ${'${r.stderr}'.trim()}');
+        return false;
+      }
+      return !'${r.stdout}'.trim().endsWith('"/"');
+    } on ProcessException {
+      return true;
+    } on TimeoutException {
+      return true;
     }
   }
 

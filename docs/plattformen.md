@@ -46,10 +46,18 @@ Stand 25.11.2026. Aufwand grob in Personentagen (PT), ohne Store-Verfahren.
   (`roles/desktop/parts/85-vm-konsolen.sh`). Die udev-Regel für USB setzt die
   Rolle, nicht das Paket.
 - **Schlüsselbund:** `flutter_secure_storage` braucht unter Linux einen
-  Secret-Service-Dienst (gnome-keyring, KeePassXC). Die Stationen haben keinen.
-  Fehlt er, behält die App ihre Werte nur bis Programmende. Die stille
-  Anmeldung über die Browser-Sitzung (30 Tage) geht trotzdem, nur die
-  Geräte-Kennung ist bei jedem Start neu.
+  Secret-Service-Dienst (gnome-keyring, KeePassXC). Die Stationen bekommen
+  gnome-keyring, entsperrt mit dem Passwort der Anmeldung (os-stationen,
+  `roles/desktop/parts/41-schluesselbund.sh`). Vor dem ersten Lesen fragt die
+  App den Dienst per `busctl` nach der Standard-Sammlung (`ReadAlias
+  default`): fehlt der Dienst oder die Sammlung, behält sie ihre Werte nur bis
+  Programmende — ohne dass libsecret ein Fenster „Neuen Schlüsselbund
+  anlegen“ öffnet — und verspricht auf der Startseite **nicht**, sich die
+  Anmeldung 30 Tage zu merken. Die stille Anmeldung über die Browser-Sitzung
+  geht trotzdem, nur die Geräte-Kennung ist bei jedem Start neu.
+- **Anzeige oben rechts:** vor der Verbindung sagt sie, worauf die App
+  wartet („Bitte anmelden“, „Anmeldung im Browser …“, „Verbindung wird
+  aufgebaut …“), danach die Netzlage (im Haus / unterwegs).
 - **Stille Anmeldung (Kerberos):** an einer Station mit Domänenanmeldung
   meldet die App beim Start ohne Knopf und ohne Browser an
   (`RosenwegKonto.stillAnmelden`, SPNEGO aus rosenweg_basis
