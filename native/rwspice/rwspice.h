@@ -31,7 +31,7 @@
 extern "C" {
 #endif
 
-#define RW_SPICE_ABI 5
+#define RW_SPICE_ABI 6
 
 /* Kanalarten fuer RW_E_KANAL: was der Computer anbietet (Ton nur mit
  * audio0 driver=spice, USB nur mit usbN: spice in Proxmox). */
@@ -57,6 +57,7 @@ enum {
     RW_E_AGENT       = 10, /* a = 1 Gast-Agent da (Groesse anpassen, Zwischenablage) */
     RW_E_KANAL       = 11, /* Kanal angeboten: a = RW_K_*, b = 1 neu / 0 weg */
     RW_E_ORDNER      = 12, /* a = 1 Ordner freigegeben, 0 nicht; b = 1 Fehler (Text via rw_spice_letzter_fehler) */
+    RW_E_ZWISCHENABLAGE = 13, /* Gast hat Text in die Zwischenablage gelegt; holen mit rw_spice_zwischenablage_holen */
 };
 
 enum {
@@ -98,8 +99,17 @@ RW_EXPORT void rw_spice_maus_taste(int32_t taste, int32_t gedrueckt, int32_t tas
 RW_EXPORT void rw_spice_taste(int32_t scancode, int32_t gedrueckt);
 /* Feststelltaste im Gast ausschalten, falls an (Zeichenmodus). */
 RW_EXPORT void rw_spice_feststell_aus(void);
-/* Bitte an den Gast, die Aufloesung anzupassen (braucht den spice-vdagent). */
+/* Bitte an den Gast, die Aufloesung anzupassen (braucht den spice-vdagent;
+ * VDAgentMonitorsConfig ueber den Hauptkanal). Breite wird auf Achterschritte
+ * abgerundet; unter 320x200 geschieht nichts. */
 RW_EXPORT void rw_spice_bildschirm_groesse(int32_t breite, int32_t hoehe);
+
+/* Zwischenablage (Text, spice-vdagent). an = 0: in keine Richtung.
+ * setzen: Text vom Geraet dem Gast anbieten (NULL/leer = nichts anbieten).
+ * holen: zuletzt vom Gast gekommener Text (mit rw_spice_frei freigeben). */
+RW_EXPORT void rw_spice_zwischenablage_an(int32_t an);
+RW_EXPORT void rw_spice_zwischenablage_setzen(const char *text);
+RW_EXPORT char *rw_spice_zwischenablage_holen(void);
 
 /* Ton: Wiedergabe an/aus; Mikrofon nur, wenn die Person es erlaubt hat. */
 RW_EXPORT void rw_spice_ton(int32_t wiedergabe, int32_t mikrofon);

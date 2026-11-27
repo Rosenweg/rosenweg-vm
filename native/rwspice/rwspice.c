@@ -9,9 +9,13 @@
  *   Audiothread (miniaudio) ◄─ Ringpuffer ◄─ GLib-Thread (Wiedergabe)
  *   Audiothread (miniaudio) ─► GLib-Thread ─► Gast (Mikrofon)
  */
+#if defined(__linux__) && !defined(_GNU_SOURCE)
+#define _GNU_SOURCE /* dladdr */
+#endif
 #include "rwspice.h"
 
 #include <spice-client.h>
+#include <spice/vd_agent.h>
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -711,6 +715,11 @@ void rw_spice_usb_schalten(const char *id, int32_t an) {
 int32_t rw_spice_ordner_moeglich(void) {
     /* spice-glib bringt den WebDAV-Server nur mit, wenn es mit phodav gebaut
      * ist; ohne bleibt der Kanal stumm. */
+#ifdef RW_MIT_PHODAV
+    /* Android: phodav steckt statisch in libspiceglib.so, seine Symbole sind
+     * dort nicht sichtbar; der Bau weiss es (native/rwspice/bauen.sh). */
+    return 1;
+#endif
 #ifdef _WIN32
     /* kein RTLD_DEFAULT: alle geladenen Module des Prozesses fragen */
     HMODULE module[512];
@@ -721,7 +730,20 @@ int32_t rw_spice_ordner_moeglich(void) {
     }
     return 0;
 #else
-    return dlsym(RTLD_DEFAULT, "phodav_server_new") != NULL ? 1 : 0;
+    if (dlsym(RTLD_DEFAULT, "phodav_server_new")) return 1;
+    /* Linux/Android: Dart laedt rwspice mit RTLD_LOCAL. phodav haengt dann
+     * nur im Baum von spice-glib, nicht im globalen Namensraum; darum dort
+     * nachsehen (dlsym mit Handle sucht auch in den Abhaengigkeiten). */
+    Dl_info info;
+    if (dladdr((const void *)spice_session_new, &info) && info.dli_fname) {
+        void *h = dlopen(info.dli_fname, RTLD_LAZY | RTLD_NOLOAD);
+        if (h) {
+            int ja = dlsym(h, "phodav_server_new") != NULL;
+            dlclose(h);
+            if (ja) return 1;
+        }
+    }
+    return 0;
 #endif
 }
 
@@ -766,6 +788,115 @@ void rw_spice_ordner(const char *pfad, int32_t nur_lesen) {
     im_kontext_mit(ordner_setzen, o, ordner_frei);
 }
 
+/* ── Zwischenablage (spice-vdagent im Gast) ──────────────────────────── */
+/* Nur Text und nur die Auswahl CLIPBOARD (Strg+C/Strg+V), nicht PRIMARY.
+ * Gast -> Geraet: der Gast meldet "ich habe etwas" (grab), rwspice fragt
+ * gleich nach UTF-8-Text und meldet RW_E_ZWISCHENABLAGE; die App holt ihn mit
+ * rw_spice_zwischenablage_holen. Geraet -> Gast: die App gibt den Text mit
+ * rw_spice_zwischenablage_setzen; rwspice meldet ihn dem Gast an und liefert
+ * ihn, wenn der Gast einfuegt. Aus (rw_spice_zwischenablage_an(0)): nichts
+ * geht in eine Richtung. */
+
+static GMutex zw_mutex;
+static gboolean zw_an = TRUE;
+static char *zw_eigen;  /* Text vom Geraet, den der Gast holen darf */
+static char *zw_gast;   /* zuletzt vom Gast gekommen */
+static gboolean zw_angemeldet;
+
+static gboolean agent_da(void) {
+    gboolean da = FALSE;
+    if (hauptkanal) g_object_get(hauptkanal, "agent-connected", &da, NULL);
+    return da;
+}
+
+static void zw_anmelden(void) {
+    if (!hauptkanal || !agent_da()) return;
+    g_mutex_lock(&zw_mutex);
+    gboolean hat = zw_an && zw_eigen != NULL;
+    g_mutex_unlock(&zw_mutex);
+    if (!hat) return;
+    guint32 typ = VD_AGENT_CLIPBOARD_UTF8_TEXT;
+    spice_main_channel_clipboard_selection_grab(hauptkanal, VD_AGENT_CLIPBOARD_SELECTION_CLIPBOARD, &typ, 1);
+    zw_angemeldet = TRUE;
+}
+
+static gboolean zw_gast_hat(SpiceMainChannel *k, guint auswahl, gpointer typen, guint n, gpointer _) {
+    (void)_;
+    if (auswahl != VD_AGENT_CLIPBOARD_SELECTION_CLIPBOARD || !zw_an) return TRUE;
+    const guint32 *t = typen;
+    for (guint i = 0; i < n; i++) {
+        if (t[i] == VD_AGENT_CLIPBOARD_UTF8_TEXT) {
+            zw_angemeldet = FALSE; /* der Gast hat jetzt die Ablage */
+            spice_main_channel_clipboard_selection_request(k, auswahl, VD_AGENT_CLIPBOARD_UTF8_TEXT);
+            break;
+        }
+    }
+    return TRUE;
+}
+
+static void zw_gast_daten(SpiceMainChannel *k, guint auswahl, guint typ, gpointer daten, guint groesse, gpointer _) {
+    (void)k; (void)_;
+    if (auswahl != VD_AGENT_CLIPBOARD_SELECTION_CLIPBOARD || typ != VD_AGENT_CLIPBOARD_UTF8_TEXT || !zw_an) return;
+    /* Windows-Gaeste haengen eine abschliessende NUL an */
+    while (groesse > 0 && ((const char *)daten)[groesse - 1] == '\0') groesse--;
+    if (!g_utf8_validate(daten, groesse, NULL)) return;
+    g_mutex_lock(&zw_mutex);
+    g_free(zw_gast);
+    zw_gast = g_strndup(daten, groesse);
+    g_mutex_unlock(&zw_mutex);
+    melden(RW_E_ZWISCHENABLAGE, (int32_t)groesse, 0, 0, 0);
+}
+
+static gboolean zw_gast_will(SpiceMainChannel *k, guint auswahl, guint typ, gpointer _) {
+    (void)_;
+    if (auswahl != VD_AGENT_CLIPBOARD_SELECTION_CLIPBOARD || typ != VD_AGENT_CLIPBOARD_UTF8_TEXT) return FALSE;
+    g_mutex_lock(&zw_mutex);
+    char *t = zw_an && zw_eigen ? g_strdup(zw_eigen) : NULL;
+    g_mutex_unlock(&zw_mutex);
+    if (!t) return FALSE;
+    spice_main_channel_clipboard_selection_notify(k, auswahl, typ, (const guchar *)t, strlen(t));
+    g_free(t);
+    return TRUE;
+}
+
+static gboolean zw_setzen(gpointer p) {
+    (void)p;
+    zw_anmelden();
+    return G_SOURCE_REMOVE;
+}
+
+static gboolean zw_freigeben(gpointer p) {
+    (void)p;
+    if (hauptkanal && zw_angemeldet && agent_da())
+        spice_main_channel_clipboard_selection_release(hauptkanal, VD_AGENT_CLIPBOARD_SELECTION_CLIPBOARD);
+    zw_angemeldet = FALSE;
+    return G_SOURCE_REMOVE;
+}
+
+void rw_spice_zwischenablage_an(int32_t an) {
+    g_mutex_lock(&zw_mutex);
+    zw_an = an != 0;
+    if (!zw_an) { g_free(zw_eigen); zw_eigen = NULL; }
+    g_mutex_unlock(&zw_mutex);
+    if (!an) im_kontext(zw_freigeben, g_new0(char, 1));
+}
+
+void rw_spice_zwischenablage_setzen(const char *text) {
+    g_mutex_lock(&zw_mutex);
+    g_free(zw_eigen);
+    zw_eigen = text && *text && zw_an ? g_strdup(text) : NULL;
+    gboolean leer = zw_eigen == NULL;
+    g_mutex_unlock(&zw_mutex);
+    im_kontext(leer ? zw_freigeben : zw_setzen, g_new0(char, 1));
+}
+
+char *rw_spice_zwischenablage_holen(void) {
+    g_mutex_lock(&zw_mutex);
+    char *t = g_strdup(zw_gast ? zw_gast : "");
+    g_mutex_unlock(&zw_mutex);
+    return t;
+}
+
 /* ── Kanaele und Sitzung ─────────────────────────────────────────────── */
 
 static int grund_aus(SpiceChannelEvent ev) {
@@ -803,6 +934,8 @@ static void agent(GObject *o, GParamSpec *ps, gpointer _) {
     (void)ps; (void)_;
     gboolean da = FALSE;
     g_object_get(o, "agent-connected", &da, NULL);
+    zw_angemeldet = FALSE;
+    if (da) zw_anmelden();
     melden(RW_E_AGENT, da ? 1 : 0, 0, 0, 0);
 }
 
@@ -834,6 +967,9 @@ static void kanal_neu(SpiceSession *s, SpiceChannel *k, gpointer _) {
         g_signal_connect(k, "channel-event", G_CALLBACK(hauptkanal_ereignis), NULL);
         g_signal_connect(k, "notify::mouse-mode", G_CALLBACK(mausmodus), NULL);
         g_signal_connect(k, "notify::agent-connected", G_CALLBACK(agent), NULL);
+        g_signal_connect(k, "main-clipboard-selection-grab", G_CALLBACK(zw_gast_hat), NULL);
+        g_signal_connect(k, "main-clipboard-selection", G_CALLBACK(zw_gast_daten), NULL);
+        g_signal_connect(k, "main-clipboard-selection-request", G_CALLBACK(zw_gast_will), NULL);
         return; /* verbindet die Sitzung selbst */
     }
     if (SPICE_IS_DISPLAY_CHANNEL(k)) {
@@ -912,6 +1048,7 @@ static void sitzung_abbauen(void) {
     bildkanal = NULL;
     usb = NULL;
     gast_nimmt_auf = FALSE;
+    zw_angemeldet = FALSE;
     g_mutex_lock(&bild_mutex);
     bild_quelle = NULL;
     g_free(bild_puffer);
@@ -1072,7 +1209,10 @@ void rw_spice_feststell_aus(void) { eingabe_schicken(E_CAPS_AUS, 0, 0, 0); }
 void rw_spice_maus_taste(int32_t taste, int32_t gedrueckt, int32_t tasten) { eingabe_schicken(E_TASTE_MAUS, taste, gedrueckt, tasten); }
 void rw_spice_taste(int32_t scancode, int32_t gedrueckt) { eingabe_schicken(E_TASTE, scancode, gedrueckt, 0); }
 void rw_spice_bildschirm_groesse(int32_t breite, int32_t hoehe) {
-    if (breite > 0 && hoehe > 0) eingabe_schicken(E_GROESSE, breite, hoehe, 0);
+    /* QXL und virtio-gpu wollen eine Breite in Achterschritten */
+    breite &= ~7;
+    hoehe &= ~1;
+    if (breite >= 320 && hoehe >= 200) eingabe_schicken(E_GROESSE, breite, hoehe, 0);
 }
 
 /* ── Fehlertext ──────────────────────────────────────────────────────── */

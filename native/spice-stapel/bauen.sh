@@ -20,9 +20,10 @@
 #     (gstreamer.freedesktop.org, LGPL/MIT/BSD, mit cerbero gebaut, statisch).
 #     Spart den groessten Teil des Stapels; Pruefsumme fest.
 #   - selbst gebaut (meson/autotools mit dem NDK): libusb, usbredir, json-glib
-#     (falls nicht im Paket), spice-protocol, spice-gtk (nur spice-glib,
-#     ohne GTK, ohne phodav, Koroutinen ueber GThread: Bionic hat kein
-#     makecontext).
+#     (falls nicht im Paket), fuer "Ordner freigeben" phodav mit libsoup 3,
+#     libxml2, sqlite, nghttp2, libpsl (je nur, falls nicht im Paket),
+#     spice-protocol, spice-gtk (nur spice-glib, ohne GTK, mit WebDAV,
+#     Koroutinen ueber GThread: Bionic hat kein makecontext).
 #
 # Laeuft auf Linux x86_64 (GitHub-Runner ubuntu-latest) oder macOS mit NDK,
 # meson, ninja, pkg-config, python3 (mit pyparsing), curl, xz.
@@ -163,6 +164,89 @@ if ! "$PKGCFG" --exists json-glib-1.0; then
         -Dman=false -Dtests=false -Dconformance=false -Dnls=disabled -Dinstalled_tests=false
 fi
 
+# ── WebDAV ("Ordner freigeben"): phodav samt libsoup 3 ──────────────────
+# spice-glib bringt den WebDAV-Server nur mit phodav mit. phodav braucht
+# libsoup 3 und libxml2, libsoup 3 braucht sqlite, nghttp2 und libpsl. Was das
+# GStreamer-Paket schon hat, wird nicht neu gebaut. Werkzeuge, Tests, Beispiele,
+# Handbuch und Uebersetzungen braucht die Bibliothek nicht.
+ohne_subdirs() { # ohne_subdirs <meson.build> <name...>
+    local f="$1"; shift
+    for n in "$@"; do
+        sed -i.alt -E "/^[[:space:]]*subdir\(('${n//\//\\/}'|join_paths\('${n//\//\\/}'.*\))\)/d" "$f"
+    done
+    rm -f "$f.alt"
+}
+mkdir -p "$PREFIX/include"
+if ! "$PKGCFG" --exists sqlite3; then
+    schritt "sqlite $SQLITE"
+    holen "sqlite-autoconf-$SQLITE_NR.tar.gz" "https://www.sqlite.org/$SQLITE_JAHR/sqlite-autoconf-$SQLITE_NR.tar.gz" "$SQLITE_SHA256"
+    auspacken "sqlite-autoconf-$SQLITE_NR.tar.gz"
+    q="$ARBEIT/quelle/sqlite-autoconf-$SQLITE_NR"
+    # Nur die Amalgamation, ohne configure: eine Datei, eine .a
+    "$CC" -O2 -fPIC -DSQLITE_THREADSAFE=1 -DSQLITE_OMIT_LOAD_EXTENSION=1 -DSQLITE_DQS=0 \
+        -c "$q/sqlite3.c" -o "$q/sqlite3.o"
+    rm -f "$PREFIX/lib/libsqlite3.a"
+    "$AR" rcs "$PREFIX/lib/libsqlite3.a" "$q/sqlite3.o"
+    cp "$q/sqlite3.h" "$q/sqlite3ext.h" "$PREFIX/include/"
+    cat > "$PREFIX/lib/pkgconfig/sqlite3.pc" <<PC
+prefix=$PREFIX
+libdir=\${prefix}/lib
+includedir=\${prefix}/include
+Name: SQLite
+Description: SQL database engine
+Version: $SQLITE
+Libs: -L\${libdir} -lsqlite3
+Libs.private: -lm
+Cflags: -I\${includedir}
+PC
+fi
+if ! "$PKGCFG" --exists libnghttp2; then
+    schritt "nghttp2 $NGHTTP2"
+    holen "nghttp2-$NGHTTP2.tar.xz" "https://github.com/nghttp2/nghttp2/releases/download/v$NGHTTP2/nghttp2-$NGHTTP2.tar.xz" "$NGHTTP2_SHA256"
+    auspacken "nghttp2-$NGHTTP2.tar.xz"
+    (cd "$ARBEIT/quelle/nghttp2-$NGHTTP2" \
+        && ./configure -q --host="$TRIPEL" --prefix="$PREFIX" --enable-lib-only --enable-static --disable-shared \
+             CC="$CC" CXX="$CXX" AR="$AR" RANLIB="$TC/bin/llvm-ranlib" CFLAGS="-O2 -fPIC" CXXFLAGS="-O2 -fPIC" \
+        && make -s -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)" && make -s install)
+fi
+if ! "$PKGCFG" --exists libpsl; then
+    schritt "libpsl $LIBPSL"
+    holen "libpsl-$LIBPSL.tar.gz" "https://github.com/rockdaboot/libpsl/releases/download/$LIBPSL/libpsl-$LIBPSL.tar.gz" "$LIBPSL_SHA256"
+    auspacken "libpsl-$LIBPSL.tar.gz"
+    q="$ARBEIT/quelle/libpsl-$LIBPSL"
+    ohne_subdirs "$q/meson.build" tools docs
+    # Ohne eingebaute Liste und ohne IDNA: libsoup braucht libpsl nur fuer
+    # Cookies, die es hier nicht gibt.
+    meson_bau "$q" -Druntime=no -Dbuiltin=false -Dtests=false -Ddocs=false
+fi
+if ! "$PKGCFG" --exists libxml-2.0; then
+    schritt "libxml2 $LIBXML2"
+    holen "libxml2-$LIBXML2.tar.xz" "https://download.gnome.org/sources/libxml2/${LIBXML2%.*}/libxml2-$LIBXML2.tar.xz" "$LIBXML2_SHA256"
+    auspacken "libxml2-$LIBXML2.tar.xz"
+    q="$ARBEIT/quelle/libxml2-$LIBXML2"
+    ohne_subdirs "$q/meson.build" example doc python
+    meson_bau "$q" -Diconv=disabled -Dicu=disabled -Dlzma=disabled -Dzlib=disabled -Dpython=disabled \
+        -Dreadline=disabled -Dhistory=disabled -Dhttp=disabled -Dmodules=disabled
+fi
+if ! "$PKGCFG" --exists libsoup-3.0; then
+    schritt "libsoup $LIBSOUP"
+    holen "libsoup-$LIBSOUP.tar.xz" "https://download.gnome.org/sources/libsoup/${LIBSOUP%.*}/libsoup-$LIBSOUP.tar.xz" "$LIBSOUP_SHA256"
+    auspacken "libsoup-$LIBSOUP.tar.xz"
+    q="$ARBEIT/quelle/libsoup-$LIBSOUP"
+    ohne_subdirs "$q/meson.build" po examples fuzzing docs/reference
+    meson_bau "$q" -Dgssapi=disabled -Dntlm=disabled -Dbrotli=disabled -Dtls_check=false \
+        -Dintrospection=disabled -Dvapi=disabled -Ddocs=disabled -Dtests=false -Dautobahn=disabled \
+        -Dsysprof=disabled -Dpkcs11_tests=disabled
+fi
+if ! "$PKGCFG" --exists libphodav-3.0; then
+    schritt "phodav $PHODAV"
+    holen "phodav-$PHODAV.tar.xz" "https://download.gnome.org/sources/phodav/$PHODAV/phodav-$PHODAV.tar.xz" "$PHODAV_SHA256"
+    auspacken "phodav-$PHODAV.tar.xz"
+    q="$ARBEIT/quelle/phodav-$PHODAV"
+    ohne_subdirs "$q/meson.build" po bin doc data tests
+    meson_bau "$q" -Davahi=disabled -Dgtk_doc=disabled
+fi
+
 # ── spice-protocol ──────────────────────────────────────────────────────
 if ! "$PKGCFG" --exists "spice-protocol >= $SPICE_PROTOCOL"; then
     schritt "spice-protocol $SPICE_PROTOCOL"
@@ -180,7 +264,7 @@ if [ ! -f "$PREFIX/lib/libspice-client-glib-2.0.a" ]; then
     # Werkzeuge, Tests, Handbuch, Uebersetzungen, Vala braucht die Bibliothek nicht
     sed -i.alt -E "/^subdir\('(tools|tests|man|po|vapi|data)'\)/d; /^    subdir\('doc'\)/d" "$q/meson.build"
     meson_bau "$q" \
-        -Dgtk=disabled -Dwebdav=disabled -Dusbredir=enabled -Dpolkit=disabled \
+        -Dgtk=disabled -Dwebdav=enabled -Dusbredir=enabled -Dpolkit=disabled \
         -Dlibcap-ng=disabled -Dcoroutine=gthread -Dintrospection=disabled -Dvapi=disabled \
         -Dlz4=disabled -Dsasl=disabled -Dsmartcard=disabled -Dopus=enabled -Dgtk_doc=disabled \
         -Degl=disabled -Dwayland-protocols=disabled -Dbuiltin-mjpeg=true -Dpie=false \
@@ -213,6 +297,13 @@ EOF
     echo "  spice-gtk $SPICE_GTK (spice-client-glib), spice-protocol $SPICE_PROTOCOL  https://www.spice-space.org/"
     echo "  usbredir $USBREDIR  https://www.spice-space.org/download/usbredir/"
     echo "  libusb $LIBUSB  https://github.com/libusb/libusb"
+    for m in "libphodav-3.0 https://download.gnome.org/sources/phodav/" "libsoup-3.0 https://download.gnome.org/sources/libsoup/" \
+             "libxml-2.0 https://download.gnome.org/sources/libxml2/" "libnghttp2 https://github.com/nghttp2/nghttp2" \
+             "libpsl https://github.com/rockdaboot/libpsl" "sqlite3 https://www.sqlite.org/"; do
+        # shellcheck disable=SC2086
+        set -- $m
+        [ -f "$PREFIX/lib/pkgconfig/$1.pc" ] && printf '  %s %s  %s\n' "$1" "$("$PKGCFG" --modversion "$1")" "$2"
+    done
     "$PKGCFG" --exists json-glib-1.0 && [ -d "$PREFIX/include/json-glib-1.0" ] \
         && echo "  json-glib $JSON_GLIB  https://download.gnome.org/sources/json-glib/"
     echo "  aus dem GStreamer-Binaerpaket $GST_VERSION (https://gstreamer.freedesktop.org/data/pkg/android/$GST_VERSION/,"

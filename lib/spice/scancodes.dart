@@ -38,6 +38,138 @@ bool istSteuertaste(PhysicalKeyboardKey k) {
   return (u >= 0x28 && u <= 0x2b) || (u >= 0x3a && u <= 0x53) || u == 0x58 || u == 0x65;
 }
 
+/// Taste ohne Scancode (scanCode 0): Bildschirmtastaturen, `adb shell input`
+/// und manche Bluetooth-Tastaturen melden dann nur die LOGISCHE Taste; Flutter
+/// liefert einen physicalKey ausserhalb der HID-Seite 0x07. Fuer alles, was
+/// keinen Text ergibt (Rueckschritt, Enter, Pfeile, F-Tasten, Umschalter …),
+/// gilt dann die Stelle dieser Taste auf einer PC-Tastatur.
+int? scancodeLogisch(LogicalKeyboardKey k) => _logisch[k.keyId];
+
+/// Scancode fuer ein Tastenereignis: zuerst die physische Taste, ohne sie
+/// die logische (siehe [scancodeLogisch]).
+int? tastenScancode(KeyEvent e, {bool macIsoTausch = false, bool cmdAlsStrg = false}) {
+  if (_hid(e.physicalKey)) return scancode(e.physicalKey, macIsoTausch: macIsoTausch, cmdAlsStrg: cmdAlsStrg);
+  final sc = scancodeLogisch(e.logicalKey);
+  if (cmdAlsStrg && sc == 0x15b) return 0x1d;
+  if (cmdAlsStrg && sc == 0x15c) return 0x11d;
+  return sc;
+}
+
+/// [istSteuertaste] fuer ein Ereignis, auch ohne Scancode.
+bool istSteuertasteEreignis(KeyEvent e) =>
+    _hid(e.physicalKey) ? istSteuertaste(e.physicalKey) : _logischSteuer.contains(e.logicalKey.keyId);
+
+/// [istUmschalter] fuer ein Ereignis, auch ohne Scancode.
+bool istUmschalterEreignis(KeyEvent e) =>
+    _hid(e.physicalKey) ? istUmschalter(e.physicalKey) : _logischUmschalter.contains(e.logicalKey.keyId);
+
+bool _hid(PhysicalKeyboardKey k) => (k.usbHidUsage >> 16) == 0x07 && _tabelle.containsKey(k.usbHidUsage & 0xFFFF);
+
+final _logischUmschalter = {
+  for (final k in [
+    LogicalKeyboardKey.controlLeft,
+    LogicalKeyboardKey.controlRight,
+    LogicalKeyboardKey.shiftLeft,
+    LogicalKeyboardKey.shiftRight,
+    LogicalKeyboardKey.altLeft,
+    LogicalKeyboardKey.altRight,
+    LogicalKeyboardKey.metaLeft,
+    LogicalKeyboardKey.metaRight,
+    LogicalKeyboardKey.control,
+    LogicalKeyboardKey.shift,
+    LogicalKeyboardKey.alt,
+    LogicalKeyboardKey.meta,
+    LogicalKeyboardKey.altGraph,
+  ])
+    k.keyId,
+};
+
+final _logischSteuer = {
+  for (final k in [
+    LogicalKeyboardKey.enter,
+    LogicalKeyboardKey.numpadEnter,
+    LogicalKeyboardKey.escape,
+    LogicalKeyboardKey.backspace,
+    LogicalKeyboardKey.tab,
+    LogicalKeyboardKey.delete,
+    LogicalKeyboardKey.insert,
+    LogicalKeyboardKey.home,
+    LogicalKeyboardKey.end,
+    LogicalKeyboardKey.pageUp,
+    LogicalKeyboardKey.pageDown,
+    LogicalKeyboardKey.arrowLeft,
+    LogicalKeyboardKey.arrowRight,
+    LogicalKeyboardKey.arrowUp,
+    LogicalKeyboardKey.arrowDown,
+    LogicalKeyboardKey.contextMenu,
+    LogicalKeyboardKey.printScreen,
+    LogicalKeyboardKey.scrollLock,
+    LogicalKeyboardKey.numLock,
+    LogicalKeyboardKey.f1,
+    LogicalKeyboardKey.f2,
+    LogicalKeyboardKey.f3,
+    LogicalKeyboardKey.f4,
+    LogicalKeyboardKey.f5,
+    LogicalKeyboardKey.f6,
+    LogicalKeyboardKey.f7,
+    LogicalKeyboardKey.f8,
+    LogicalKeyboardKey.f9,
+    LogicalKeyboardKey.f10,
+    LogicalKeyboardKey.f11,
+    LogicalKeyboardKey.f12,
+  ])
+    k.keyId,
+};
+
+final _logisch = <int, int>{
+  LogicalKeyboardKey.enter.keyId: 0x1c,
+  LogicalKeyboardKey.numpadEnter.keyId: 0x11c,
+  LogicalKeyboardKey.escape.keyId: 0x01,
+  LogicalKeyboardKey.backspace.keyId: 0x0e,
+  LogicalKeyboardKey.tab.keyId: 0x0f,
+  LogicalKeyboardKey.space.keyId: 0x39,
+  LogicalKeyboardKey.capsLock.keyId: 0x3a,
+  LogicalKeyboardKey.f1.keyId: 0x3b,
+  LogicalKeyboardKey.f2.keyId: 0x3c,
+  LogicalKeyboardKey.f3.keyId: 0x3d,
+  LogicalKeyboardKey.f4.keyId: 0x3e,
+  LogicalKeyboardKey.f5.keyId: 0x3f,
+  LogicalKeyboardKey.f6.keyId: 0x40,
+  LogicalKeyboardKey.f7.keyId: 0x41,
+  LogicalKeyboardKey.f8.keyId: 0x42,
+  LogicalKeyboardKey.f9.keyId: 0x43,
+  LogicalKeyboardKey.f10.keyId: 0x44,
+  LogicalKeyboardKey.f11.keyId: 0x57,
+  LogicalKeyboardKey.f12.keyId: 0x58,
+  LogicalKeyboardKey.printScreen.keyId: 0x137,
+  LogicalKeyboardKey.scrollLock.keyId: 0x46,
+  LogicalKeyboardKey.numLock.keyId: 0x45,
+  LogicalKeyboardKey.insert.keyId: 0x152,
+  LogicalKeyboardKey.home.keyId: 0x147,
+  LogicalKeyboardKey.pageUp.keyId: 0x149,
+  LogicalKeyboardKey.delete.keyId: 0x153,
+  LogicalKeyboardKey.end.keyId: 0x14f,
+  LogicalKeyboardKey.pageDown.keyId: 0x151,
+  LogicalKeyboardKey.arrowRight.keyId: 0x14d,
+  LogicalKeyboardKey.arrowLeft.keyId: 0x14b,
+  LogicalKeyboardKey.arrowDown.keyId: 0x150,
+  LogicalKeyboardKey.arrowUp.keyId: 0x148,
+  LogicalKeyboardKey.contextMenu.keyId: 0x15d,
+  LogicalKeyboardKey.controlLeft.keyId: 0x1d,
+  LogicalKeyboardKey.control.keyId: 0x1d,
+  LogicalKeyboardKey.controlRight.keyId: 0x11d,
+  LogicalKeyboardKey.shiftLeft.keyId: 0x2a,
+  LogicalKeyboardKey.shift.keyId: 0x2a,
+  LogicalKeyboardKey.shiftRight.keyId: 0x36,
+  LogicalKeyboardKey.altLeft.keyId: 0x38,
+  LogicalKeyboardKey.alt.keyId: 0x38,
+  LogicalKeyboardKey.altRight.keyId: 0x138,
+  LogicalKeyboardKey.altGraph.keyId: 0x138,
+  LogicalKeyboardKey.metaLeft.keyId: 0x15b,
+  LogicalKeyboardKey.meta.keyId: 0x15b,
+  LogicalKeyboardKey.metaRight.keyId: 0x15c,
+};
+
 const _tabelle = <int, int>{
   // Buchstaben a–z
   0x04: 0x1e, 0x05: 0x30, 0x06: 0x2e, 0x07: 0x20, 0x08: 0x12, 0x09: 0x21, 0x0a: 0x22,

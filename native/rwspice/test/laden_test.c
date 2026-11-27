@@ -66,7 +66,8 @@ int main(int argc, char **argv) {
     void (*frei)(char *) = (void (*)(char *))fn(spice, "rw_spice_frei");
     char *(*schluessel)(void) = (char *(*)(void))fn(tunnel, "rwt_schluesselpaar");
     void (*tfrei)(char *) = (void (*)(char *))fn(tunnel, "rwt_frei");
-    if (!abi || !start || !ordner_moeglich || !usb_liste || !frei || !schluessel || !tfrei) {
+    void *zw = fn(spice, "rw_spice_zwischenablage_setzen");
+    if (!abi || !start || !ordner_moeglich || !usb_liste || !frei || !schluessel || !tfrei || !zw) {
         fprintf(stderr, "Funktion fehlt in rwspice/rwtunnel\n");
         return 1;
     }

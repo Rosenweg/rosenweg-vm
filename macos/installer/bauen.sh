@@ -213,6 +213,8 @@ while IFS= read -r f; do
 done < <(macho)
 [ "$schlecht" = 0 ] || fehler "Buendel nicht in sich geschlossen"
 echo "ok: nur @rpath, @executable_path, @loader_path, /System, /usr/lib"
+# "Ordner freigeben" braucht phodav (Homebrew baut spice-gtk damit)
+if ls "$FW" | grep -q '^libphodav'; then echo "phodav: im Buendel"; else echo "WARNUNG: kein phodav im Buendel, Ordner freigeben geht nicht"; fi
 
 # ── 5. Signieren ───────────────────────────────────────────────────────
 schritt "Signieren"
