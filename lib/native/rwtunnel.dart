@@ -130,8 +130,11 @@ class RwTunnel {
 }
 
 class TunnelFehler implements Exception {
-  TunnelFehler(this.text);
+  TunnelFehler(this.text, {this.status});
   final String text;
+
+  /// HTTP-Status der Haupt-API, falls sie abgelehnt hat (401 = neu anmelden).
+  final int? status;
   @override
   String toString() => text;
 }

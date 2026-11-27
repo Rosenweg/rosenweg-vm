@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import 'dart:io';
 
+import 'package:rosenweg_basis/rosenweg_basis.dart' show Zugangsquelle;
+
 import '../netz/json_anfrage.dart';
 
 /// Ein Computer (virtuelle Maschine) so, wie die Oberflaeche ihn braucht.
@@ -16,23 +18,34 @@ class Computer {
 
 /// Die Schnittstelle des vm-gateway, erreichbar nur durch den Tunnel
 /// (lokale Weiterleitung auf 127.0.0.1). Jede Anfrage traegt das
-/// Authentik-Token; der Gateway prueft es und fragt Proxmox, was diese
-/// Person darf. Darum gibt es in der App keine zweite Anmeldung mehr.
+/// Token der Anmeldung (Authentik oder rw_app_ von Karte/QR/Handy); der
+/// Gateway prueft es und fragt Proxmox, was diese Person darf. Darum gibt es
+/// in der App keine zweite Anmeldung.
 class Gateway {
-  Gateway(this.basis, this._token);
+  Gateway(this.basis, this._zugang);
 
   /// z. B. http://127.0.0.1:53122 (Weiterleitung zu 10.243.43.1:80)
   final String basis;
-  final Future<String?> Function() _token;
+  final Zugangsquelle _zugang;
 
   Future<dynamic> _ruf(String methode, String pfad) async {
-    final token = await _token();
+    var token = await _zugang.zugangsToken();
     if (token == null) throw GatewayFehler(401, 'Bitte neu anmelden');
-    final a = await jsonAnfrage('Gateway $methode $pfad', (c) async {
-      final r = await c.openUrl(methode, Uri.parse('$basis$pfad'));
-      r.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
-      return r.close();
-    });
+    Future<({int status, Object? json})> einmal(String t) => jsonAnfrage('Gateway $methode $pfad', (c) async {
+          final r = await c.openUrl(methode, Uri.parse('$basis$pfad'));
+          r.headers.set(HttpHeaders.authorizationHeader, 'Bearer $t');
+          return r.close();
+        });
+    var a = await einmal(token);
+    if (a.status == 401) {
+      // Karten-Zugang lebt 15 Minuten: einmal erneuern, dann ehrlich melden.
+      _zugang.zugangUngueltig();
+      final neu = await _zugang.zugangsToken();
+      if (neu != null && neu != token) {
+        token = neu;
+        a = await einmal(token);
+      }
+    }
     final j = a.json;
     if (a.status != 200) {
       final m = j is Map ? j['error'] as String? : null;

@@ -1,15 +1,21 @@
 # Rosenweg Virtuelle Computer
 
-Eine App für Windows, macOS, Linux, Android und iOS: einmal mit dem
-Rosenweg-Konto anmelden, die eigenen virtuellen Computer aus dem
-Proxmox-Cluster sehen, antippen, Bildschirm (SPICE) mit Ton und USB in der App.
+Eine App für Windows, macOS, Linux, Android und iOS: einmal anmelden (wie in
+allen Rosenweg-Apps: Rosenweg-Karte, Anmelde-QR, „Mit dem Handy anmelden“ oder
+Rosenweg-Konto; an Stationen und in der Windows-Domäne still per Kerberos),
+die eigenen virtuellen Computer aus dem Proxmox-Cluster sehen, antippen,
+Bildschirm (SPICE) mit Ton und USB in der App. Die App aktualisiert sich
+selbst (Updater aus `rosenweg_basis`; aus auf Rosenweg-Stationen, dort bringt
+os-stationen das Paket).
 
 Ersetzt später auf den Stationen das Python/GTK-Programm „Maschinen“
 (`os-stationen/roles/desktop/files/vm-konsolen.py`).
 
 ```
-Start ─► Rosenweg-Konto (Authentik rosenweg-apps, PKCE)
-         still, wenn die letzte Browser-Anmeldung ≤ 30 Tage her ist
+Start ─► Anmeldetor aus rosenweg_basis (RosenwegSitzung):
+         gespeichert (Konto ≤ 30 Tage, Karten-/QR-/Handy-Sitzung) → still per
+         Kerberos → sonst Anmeldeschirm (Karte, QR, Handy, Konto)
+         Token: Authentik (Konto/Kerberos) oder rw_app_… (Karte/QR/Handy)
               ▼
          POST /api/apps/tunnel (Haupt-API, nur öffentlicher Schlüssel)
               ▼

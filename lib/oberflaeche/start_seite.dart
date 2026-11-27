@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import 'package:flutter/material.dart';
+import 'package:rosenweg_basis/rosenweg_basis.dart' show AnmeldeArt, zeigeAnmeldung;
 
 import '../app_zustand.dart';
 import '../netz/netzlage.dart';
@@ -30,15 +31,23 @@ class StartSeite extends StatelessWidget {
             PopupMenuButton<String>(
               tooltip: 'Konto',
               icon: const Icon(Icons.account_circle_outlined),
-              itemBuilder: (_) => [
-                if (zustand.konto.name != null)
-                  PopupMenuItem(enabled: false, child: Text(zustand.konto.name!)),
-                if (zustand.konto.email != null)
-                  PopupMenuItem(enabled: false, child: Text(zustand.konto.email!)),
-                const PopupMenuItem(value: 'ueber', child: Text('Über diese App')),
-                const PopupMenuItem(value: 'ab', child: Text('Abmelden')),
-              ],
-              onSelected: (wahl) => wahl == 'ueber' ? _ueber(context) : zustand.abmelden(),
+              itemBuilder: (_) {
+                // Immer der echte Stand der Sitzung (rosenweg_basis), nie eine Vermutung.
+                final st = zustand.sitzung.stand;
+                return [
+                  if ((st.name ?? '').isNotEmpty) PopupMenuItem(enabled: false, child: Text(st.name!)),
+                  PopupMenuItem(enabled: false, child: Text(st.art.text)),
+                  const PopupMenuItem(value: 'anmeldung', child: Text('Anmeldung')),
+                  const PopupMenuItem(value: 'ueber', child: Text('Über diese App')),
+                  if (st.angemeldet && st.art != AnmeldeArt.geteiltesTelefon)
+                    const PopupMenuItem(value: 'ab', child: Text('Abmelden')),
+                ];
+              },
+              onSelected: (wahl) => switch (wahl) {
+                'anmeldung' => zeigeAnmeldung(context, zustand.sitzung),
+                'ueber' => _ueber(context),
+                _ => zustand.abmelden(),
+              },
             ),
           ],
         ),
@@ -58,21 +67,8 @@ class StartSeite extends StatelessWidget {
 
   Widget _inhalt(BuildContext context) {
     switch (zustand.phase) {
-      case Phase.pruefen:
-        return const _Hinweis(warten: true, text: 'Einen Moment …');
       case Phase.tunnel:
         return const _Hinweis(warten: true, text: 'Sichere Verbindung ins Haus wird aufgebaut …');
-      case Phase.anmelden:
-        return const _Hinweis(
-            warten: true,
-            text: 'Die Anmeldeseite wurde im Browser geoeffnet.\nNach der Anmeldung geht es hier weiter.');
-      case Phase.kontoNoetig:
-        return _Hinweis(
-          logo: true,
-          text: 'Bitte mit dem Rosenweg-Konto anmelden.\nDie App merkt sich die Anmeldung 30 Tage.',
-          knopf: 'Mit Rosenweg-Konto anmelden',
-          aktion: zustand.anmelden,
-        );
       case Phase.fehler:
         return _Hinweis(text: 'Es hat nicht geklappt:\n${zustand.fehler}', knopf: 'Nochmals', aktion: zustand.starten);
       case Phase.liste:
@@ -160,10 +156,9 @@ class _LageAnzeige extends StatelessWidget {
 }
 
 class _Hinweis extends StatelessWidget {
-  const _Hinweis({required this.text, this.warten = false, this.logo = false, this.knopf, this.aktion});
+  const _Hinweis({required this.text, this.warten = false, this.knopf, this.aktion});
   final String text;
   final bool warten;
-  final bool logo;
   final String? knopf;
   final VoidCallback? aktion;
 
@@ -173,7 +168,6 @@ class _Hinweis extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(32),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          if (logo) const Padding(padding: EdgeInsets.only(bottom: 24), child: _Logo(groesse: 128)),
           if (warten) const Padding(padding: EdgeInsets.only(bottom: 24), child: CircularProgressIndicator()),
           Text(text, textAlign: TextAlign.center, style: Theme.of(context).textTheme.titleMedium),
           if (knopf != null)

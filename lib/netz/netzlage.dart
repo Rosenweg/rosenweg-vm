@@ -6,12 +6,12 @@ import 'dart:math';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
+import 'package:rosenweg_basis/rosenweg_basis.dart' show Zugangsquelle;
 
-import '../anmeldung/rosenweg_konto.dart';
-import '../anmeldung/schluesselbund.dart';
 import '../gateway/gateway.dart';
 import '../konfig.dart';
 import '../native/rwtunnel.dart';
+import '../vm_app.dart';
 import 'haus_erkennung.dart';
 import 'json_anfrage.dart';
 
@@ -29,8 +29,12 @@ enum Lage { unbekannt, imHaus, unterwegs, keinZugang, test }
 /// eines zweiten, ungetunnelten Wegs fuer zuhause, der eigene Zertifikate und
 /// eine zweite Proxmox-Anmeldung braeuchte.
 class Netzlage extends ChangeNotifier {
-  Netzlage(this._konto);
-  final RosenwegKonto _konto;
+  Netzlage(this._zugang);
+
+  /// Token der aktiven Anmeldung (rosenweg_basis `RosenwegSitzung.zugang`):
+  /// Authentik (Konto, Kerberos) oder rw_app_ (Karte, QR, Handy). Haupt-API
+  /// und vm-gateway nehmen beide an.
+  final Zugangsquelle _zugang;
 
   Lage lage = Lage.unbekannt;
   Gateway? gateway;
@@ -62,21 +66,31 @@ class Netzlage extends ChangeNotifier {
   Future<void> aufbauen() async {
     lage = Lage.unbekannt;
     notifyListeners();
-    final token = await _konto.zugangsToken();
-    if (token == null) throw StateError('Bitte mit dem Rosenweg-Konto anmelden');
     _geraet ??= await _geraetKennung();
     final paar = RwTunnel.i.schluesselpaar();
 
-    final a = await jsonAnfrage('API Tunnel', (c) async {
-      final r = await c.postUrl(Uri.parse('${Konfig.api}/api/apps/tunnel'));
-      r.headers
-        ..set(HttpHeaders.authorizationHeader, 'Bearer $token')
-        ..contentType = ContentType.json;
-      r.write(jsonEncode({'geraet': _geraet, 'geraet_name': Platform.localHostname, 'schluessel': paar.oeffentlich}));
-      return r.close();
-    });
+    Future<({int status, Object? json})> anfragen(String token) => jsonAnfrage('API Tunnel', (c) async {
+          final r = await c.postUrl(Uri.parse('${Konfig.api}/api/apps/tunnel'));
+          r.headers
+            ..set(HttpHeaders.authorizationHeader, 'Bearer $token')
+            ..contentType = ContentType.json;
+          r.write(jsonEncode({'geraet': _geraet, 'geraet_name': Platform.localHostname, 'schluessel': paar.oeffentlich}));
+          return r.close();
+        });
+    var token = await _zugang.zugangsToken();
+    if (token == null) throw TunnelFehler('Bitte neu anmelden', status: 401);
+    var a = await anfragen(token);
+    if (a.status == 401) {
+      // wie HttpTransport der Basis: einmal erneuern, dann ehrlich melden
+      _zugang.zugangUngueltig();
+      final neu = await _zugang.zugangsToken();
+      if (neu != null && neu != token) {
+        token = neu;
+        a = await anfragen(token);
+      }
+    }
     final j = a.json is Map<String, dynamic> ? a.json as Map<String, dynamic> : const <String, dynamic>{};
-    if (a.status != 200) throw TunnelFehler((j['error'] as String?) ?? 'Verbindung abgelehnt (${a.status})');
+    if (a.status != 200) throw TunnelFehler((j['error'] as String?) ?? 'Verbindung abgelehnt (${a.status})', status: a.status);
     final antwort = j['tunnel'] as Map<String, dynamic>;
 
     final konfig = antwort['config'] as String;
@@ -91,7 +105,7 @@ class Netzlage extends ChangeNotifier {
       spiceProxy: '$gw:3128',
     );
     final port = RwTunnel.i.weiterleitung('$gw:80');
-    final g = Gateway('http://127.0.0.1:$port', _konto.zugangsToken);
+    final g = Gateway('http://127.0.0.1:$port', _zugang);
     spiceProxy = 'http://rw:${start.geheimnis}@127.0.0.1:${start.port}';
 
     final l = await _endpunktWaehlen(g);
@@ -157,11 +171,11 @@ class Netzlage extends ChangeNotifier {
   }
 
   Future<String> _geraetKennung() async {
-    var g = await Schluesselbund.i.lesen('geraet');
+    var g = await vmSpeicher.lesen('geraet');
     if (g == null) {
       final r = Random.secure();
       g = List.generate(16, (_) => r.nextInt(16).toRadixString(16)).join();
-      await Schluesselbund.i.setzen({'geraet': g});
+      await vmSpeicher.setzen({'geraet': g});
     }
     return g;
   }

@@ -134,7 +134,7 @@ Runner grün. Noch nicht gegen eine echte VM probiert (kein Windows-Rechner).
   (Sandbox, network.client/server, audio-input, usb, user-selected
   read-write). Getestet: Anmeldung aus dem Schlüsselbund, Tunnel, „im
   Haus“-Erkennung, SPICE-Bild. Protokoll liegt dann unter
-  `~/Library/Containers/ch.rosenweg4303.vm/Data/Library/Logs/Rosenweg Virtuelle Computer/app.log`.
+  `~/Library/Containers/ch.rosenweg4303.vm/Data/Library/Logs/rosenweg-vm/app.log` (bis 1.1.0 `…/Logs/Rosenweg Virtuelle Computer/`).
 - **GStreamer:** spice-glib aus MacPorts ist dagegen gelinkt, darum liegen
   die Kernbibliotheken bei. Plugins nicht: Ton macht rwspice selbst
   (miniaudio/CoreAudio), Bild-Streams dekodiert spice-glib ohne Plugins
