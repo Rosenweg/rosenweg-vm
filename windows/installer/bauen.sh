@@ -174,10 +174,16 @@ cp native/rwspice/drittanbieter/LICENSE-miniaudio "$L"/
 } > "$L/BIBLIOTHEKEN.txt"
 
 schritt "Abhaengigkeiten im Buendel"
+# Bewusste Ausnahmen (je mit Grund):
+#   jvm.dll  nur von dartjni.dll (Dart-Paket jni, Java-Bruecke, kommt transitiv
+#            mit); die App nutzt es auf Windows nie, dartjni.dll wird nur per
+#            FFI auf Anfrage geladen bzw. laedt jvm.dll verzoegert
+AUSNAHMEN=" jvm.dll "
 fehlt=""
 for d in $(importe); do
     [ -f "$B/$d" ] && continue
     case "$d" in api-ms-win-* | ext-ms-win-*) continue ;; esac
+    case "$AUSNAHMEN" in *" $d "*) echo "  Ausnahme: $d"; continue ;; esac
     # MSVC-Laufzeit gilt nie als Teil von Windows (nur auf dem Bau-Rechner da)
     if ! ist_msvc_laufzeit "$d" && [ -f "/c/Windows/System32/$d" ]; then continue; fi
     fehlt="$fehlt $d"
