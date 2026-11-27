@@ -68,4 +68,23 @@ void main() {
     expect(await s.lesen('refresh_token'), isNull);
     expect(await s.lesen('geraet'), 'g');
   });
+
+  test('Dienst da, aber kein Standard-Schluesselbund: nichts anfassen, nichts versprechen', () async {
+    FlutterSecureStorage.setMockInitialValues({'rosenweg_vm': '{"refresh_token":"alt"}'});
+    final s = Schluesselbund(roh, () async => false);
+    expect(await s.lesen('refresh_token'), isNull);
+    expect(s.nurImSpeicher, isTrue);
+    await s.setzen({'refresh_token': 'neu'});
+    expect(await s.lesen('refresh_token'), 'neu');
+    // Der Eintrag im System bleibt, wie er war: libsecret wurde nie gefragt.
+    expect(await roh.readAll(), {'rosenweg_vm': '{"refresh_token":"alt"}'});
+  });
+
+  test('Schluesselbund bereit: wie bisher', () async {
+    FlutterSecureStorage.setMockInitialValues({});
+    final s = Schluesselbund(roh, () async => true);
+    await s.setzen({'refresh_token': 'x'});
+    expect(s.nurImSpeicher, isFalse);
+    expect((await roh.readAll()).keys, ['rosenweg_vm']);
+  });
 }

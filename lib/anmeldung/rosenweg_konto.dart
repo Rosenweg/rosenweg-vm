@@ -43,6 +43,10 @@ class RosenwegKonto {
     return base64UrlEncode(List<int>.generate(n, (_) => r.nextInt(256))).replaceAll('=', '');
   }
 
+  /// Ob die Anmeldung den Programmstart ueberlebt (Schluesselbund da).
+  /// Nach [angemeldet] verlaesslich; die Startseite fragt erst danach.
+  bool get merktSich => !_speicher.nurImSpeicher;
+
   Future<bool> get angemeldet async {
     if (await _speicher.lesen(_rt) == null) return false;
     if (await _zuAlt()) {
