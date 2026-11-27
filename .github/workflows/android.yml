@@ -200,6 +200,8 @@ jobs:
         run: |
           set -euo pipefail
           native/rwtunnel/bauen.sh android
+          # Fernwartung in Rosenweg Geraet (JNI, nicht Teil dieser APK): mitbauen, damit es baut
+          native/rwtunnel/bauen.sh android-jni
           for abi in arm64-v8a x86_64; do
             mkdir -p native/spice-stapel/build/android/$abi native/rwspice/build/android/$abi
             cp stapel/spice-android-$abi/spice-stapel/build/android/$abi/* native/spice-stapel/build/android/$abi/
@@ -207,6 +209,13 @@ jobs:
           done
           android/native-sammeln.sh
           cat native/spice-stapel/build/android/*/BIBLIOTHEKEN.txt > ausgabe-bibliotheken.txt
+
+      - name: librwtunnel_jni (Fernwartung, fuer Rosenweg Geraet)
+        uses: actions/upload-artifact@v4
+        with:
+          name: rwtunnel-jni
+          path: native/rwtunnel/build/android-jni
+          retention-days: 30
 
       - name: Flutter pruefen
         run: |

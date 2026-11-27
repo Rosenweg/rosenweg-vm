@@ -4,6 +4,8 @@
 #   ./bauen.sh linux        -> build/linux/librwtunnel.so   (auf Linux ausfuehren)
 #   ./bauen.sh windows      -> build/windows/rwtunnel.dll   (braucht mingw-w64)
 #   ./bauen.sh android      -> build/android/<abi>/librwtunnel.so (NDK)
+#   ./bauen.sh android-jni  -> build/android-jni/<abi>/librwtunnel_jni.so (NDK, Java/JNI fuer
+#                              die Fernwartung in Rosenweg Geraet, siehe jni/main.go)
 #   ./bauen.sh ios          -> build/ios/librwtunnel.a      (c-archive)
 #
 # Go kommt aus .werkzeuge/go, falls vorhanden (lokal heruntergeladen, nicht
@@ -50,6 +52,18 @@ android)
         mkdir -p "build/android/$1"
         GOOS=android GOARCH="$2" CC="$tc/${3}24-clang" \
             go build "${FLAGS[@]}" -buildmode=c-shared -o "build/android/$1/librwtunnel.so" ./capi
+    done
+    ;;
+android-jni)
+    : "${ANDROID_NDK_HOME:=$HOME/Library/Android/sdk/ndk/28.2.13676358}"
+    tc="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/$(uname -s | tr A-Z a-z)-x86_64/bin"
+    for paar in "arm64-v8a arm64 aarch64-linux-android" "x86_64 amd64 x86_64-linux-android"; do
+        set -- $paar
+        mkdir -p "build/android-jni/$1"
+        # 21 = minSdk von Rosenweg Geraet; Go selbst braucht auf Android mindestens das.
+        GOOS=android GOARCH="$2" CC="$tc/${3}21-clang" \
+            go build "${FLAGS[@]}" -buildmode=c-shared -o "build/android-jni/$1/librwtunnel_jni.so" ./jni
+        rm -f "build/android-jni/$1/librwtunnel_jni.h"
     done
     ;;
 ios)
