@@ -1,5 +1,16 @@
 # Eigener Windows-Runner (`win-runner`, VM 142)
 
+> **Stand 27.11.2026: Der Runner ist für rosenweg-vm `windows.yml` noch nicht
+> brauchbar.** `msys2/setup-msys2` hängt bei `pacman-key --init`, weil gpg im
+> MSYS2-Laufzeitsystem (3.6.10/3.6.12) keine Verbindung zum gpg-agent bekommt.
+> Der gpg-agent läuft mit 100 % CPU, oder gpg meldet „IPC connect
+> fehlgeschlagen“. Gleich verhält sich die systemweite MSYS2-Installation.
+> Vermutete Ursache: Windows 11 26H1 (Build 28000) des Klons. Die
+> GitHub-Runner laufen auf Server 2025 (Build 26100). Der CPU-Typ `host` half
+> nicht. Was ohne MSYS2 auskommt (checkout, setup-go, flutter-action, VS, Inno
+> Setup), läuft. Mögliche Auswege: ein Windows mit Build 26100 (Server 2025 oder
+> 11 24H2) oder eine neuere MSYS2-Laufzeit.
+
 Zweiter selbst gehosteter Runner der Organisation neben `rosenweg-runner-1`
 (Linux, CT 140, siehe [ci.md](ci.md)). Er ist für die Windows-Läufe der
 privaten Repos gedacht (Flutter Windows-Desktop, MSYS2 mit spice-gtk, Inno
@@ -20,7 +31,7 @@ rosenweg-salz) laufen dort unverändert. Das Repo muss in der Runner-Gruppe
 | Proxmox | VM 142 `win-runner` auf pve2, Speicher `vms` (Ceph), onboot=1 |
 | Herkunft | Vollklon von VM 107 `win11-1` aus dem Snapshot `vor-rosenweg-agent`, 27.11.2026 (win11-1 blieb unverändert) |
 | System | Windows 11 Enterprise (Build 28000), Arbeitsgruppe `ROSENWEG-RUNNER`, Name `WIN-RUNNER`, **nicht in der Domäne** |
-| Ressourcen | 8 vCPU, 16 GB RAM (ohne Ballooning), 150 GB |
+| Ressourcen | 8 vCPU (CPU-Typ `host`), 16 GB RAM (ohne Ballooning), 150 GB |
 | Netz | `vmbr2` (VLAN 2, Servernetz) wie CT 140: 100.64.2.62/24, Gateway und DNS 100.64.2.1 |
 | Fernzugang | RDP aus. Zugriff über die Proxmox-Konsole oder `qm guest exec 142 …` (QEMU-Gast-Agent und VirtIO-Treiber stammen von win11-1) |
 | Sicherung | im vzdump-Auftrag „Alle Gaeste, täglich“ (01:00, PBS-Rosenweg, `all 1`) |
@@ -57,8 +68,12 @@ Windows Update und Defender sind eingeschaltet. Ausnahmen gibt es keine.
 | 7-Zip | `C:\Program Files\7-Zip` |
 | Inno Setup 6 (`ISCC.exe`) | `C:\Program Files (x86)\Inno Setup 6` |
 | Visual Studio 2022 Build Tools, Desktop C++ (MSVC, Redist, Windows SDK, CMake) | `C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools` |
-| MSYS2 mit `mingw-w64-ucrt-x86_64-{gcc,pkgconf,spice-gtk,go}` | `C:\msys64` |
-| Flutter 3.47.5 stable | `C:\tools\flutter` |
+| MSYS2 (**unvollständig**, siehe unten) | `C:\msys64` |
+| jq (braucht `subosito/flutter-action`) | `C:\tools\bin\jq.exe` |
+
+Alle Ordner stehen im System-PATH. **Nach einer Änderung am PATH den Dienst
+`actions.runner.Rosenweg.win-runner` neu starten**, sonst sieht der Runner
+den alten PATH (erster Testlauf: `bash`/`pwsh: command not found`).
 
 Dazu sind der Entwicklermodus (symbolische Links ohne Admin, nötig für
 `flutter pub get` mit Plugins) und lange Pfade eingeschaltet.
