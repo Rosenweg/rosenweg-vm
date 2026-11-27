@@ -16,12 +16,23 @@
 #   3. Buendel: Flutter-Ausgabe + rwspice.dll + rwtunnel.dll + alle DLLs, die
 #      davon aus MSYS2 (/ucrt64/bin) gebraucht werden (ldd, rekursiv). LGPL:
 #      dynamisch, austauschbar; BIBLIOTHEKEN.txt nennt Paket und Version.
-#   4. Ladetest (native/rwspice/test/laden_test.c) im Buendel mit einem PATH
+#      Dazu die Microsoft-C++-Laufzeit (msvcp140.dll, vcruntime140.dll,
+#      vcruntime140_1.dll) app-lokal: rosenweg_vm.exe, flutter_windows.dll und
+#      die Plugin-DLLs sind mit MSVC gebaut, Windows bringt sie nicht mit.
+#   4. Abhaengigkeiten (objdump): jede DLL, die eine .exe/.dll im Buendel
+#      importiert, liegt im Buendel oder gehoert zu Windows (System32,
+#      API-Sets). Die MSVC-Laufzeit zaehlt NICHT zu Windows, auch wenn sie auf
+#      dem Bau-Rechner installiert ist (Fehler in 1.2.0: Start auf win11-1
+#      scheiterte an VCRUNTIME140.dll).
+#      Ladetest (native/rwspice/test/laden_test.c) im Buendel mit einem PATH
 #      ohne MSYS2: fehlt eine DLL, bricht der Bau hier ab.
 #   5. UsbDk (Red Hat/Daynix, Apache-2.0, Treiber fuer USB-Durchreichen) mit
 #      fester Pruefsumme laden; der Installer bietet ihn als Option an.
 #   6. Installer mit Inno Setup (rosenweg-vm.iss): Installation pro Person
 #      ohne Administratorrechte; nur UsbDk fragt einmal nach Rechten.
+#
+# MSVC-Laufzeit: Ordner Microsoft.VC14x.CRT aus RW_VC_CRT, sonst aus
+# VCToolsRedistDir (Developer-Shell), sonst ueber vswhere (juengste Fassung).
 #
 # Signieren: wenn RW_SIGNTOOL_ZERT (Pfad zu .pfx) und RW_SIGNTOOL_PASSWORT
 # gesetzt sind, werden rosenweg_vm.exe, die eigenen DLLs und der Installer mit
@@ -89,6 +100,54 @@ ldd "$B/rwspice.dll" "$B/rwtunnel.dll" \
 while read -r d; do cp "$d" "$B"/; done < "$AUS/dlls.txt"
 echo "$(wc -l < "$AUS/dlls.txt") DLLs aus MSYS2"
 
+# Microsoft-C++-Laufzeit app-lokal (Microsoft erlaubt die Weitergabe als
+# "Distributable Code", siehe LIZENZEN.md). vc_redist.x64.exe kaeme nicht in
+# Frage: es braucht Administratorrechte, die Installation pro Person nicht.
+vc_crt_ordner() {
+    local d="${RW_VC_CRT:-}" vw vs
+    if [ -n "$d" ]; then cygpath -u "$d"; return; fi
+    if [ -n "${VCToolsRedistDir:-}" ]; then
+        d="$(cygpath -u "$VCToolsRedistDir")"
+    else
+        vw="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
+        [ -x "$vw" ] || return 0
+        vs="$("$vw" -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 \
+            -property installationPath | tr -d '\r')"
+        [ -n "$vs" ] || return 0
+        d="$(cygpath -u "$vs")/VC/Redist/MSVC"
+    fi
+    # .../MSVC/<Version>/x64/Microsoft.VC14x.CRT, juengste Fassung
+    local k
+    for k in "$d"/x64/Microsoft.VC14*.CRT "$d"/*/x64/Microsoft.VC14*.CRT; do
+        if [ -d "$k" ]; then printf '%s\n' "$k"; fi
+    done | sort -V | tail -n 1
+}
+# Alle DLL-Namen, die .exe/.dll im Buendel importieren (klein geschrieben)
+importe() {
+    local f
+    for f in "$B"/*.exe "$B"/*.dll; do objdump -p "$f"; done \
+        | sed -n 's/^[[:space:]]*DLL Name: *//p' | tr -d '\r' | tr '[:upper:]' '[:lower:]' | sort -u
+}
+ist_msvc_laufzeit() {
+    case "$1" in msvcp*.dll | vcruntime*.dll | concrt*.dll | vccorlib*.dll | vcomp*.dll) return 0 ;; esac
+    return 1
+}
+CRT="$(vc_crt_ordner)"
+[ -n "$CRT" ] && [ -f "$CRT/vcruntime140.dll" ] \
+    || fehler "MSVC-Laufzeit (Microsoft.VC14x.CRT) nicht gefunden; RW_VC_CRT setzen"
+echo "MSVC-Laufzeit aus $CRT"
+# Bis nichts mehr dazukommt (msvcp140.dll braucht selbst vcruntime140.dll)
+for _ in 1 2 3 4; do
+    neu=0
+    for d in $(importe); do
+        ist_msvc_laufzeit "$d" || continue
+        [ -f "$B/$d" ] && continue
+        [ -f "$CRT/$d" ] || fehler "$d fehlt in $CRT"
+        cp "$CRT/$d" "$B/$d"; echo "  $d"; neu=1
+    done
+    if [ "$neu" = 0 ]; then break; fi
+done
+
 # Leere Plugin-Ordner (rwspice biegt GStreamer/GIO dorthin, siehe buendel_pfade)
 mkdir -p "$B/plugins/gstreamer-1.0" "$B/plugins/gio-modules"
 
@@ -104,7 +163,27 @@ cp native/rwspice/drittanbieter/LICENSE-miniaudio "$L"/
     # shellcheck disable=SC2046
     pacman -Qo $(cat "$AUS/dlls.txt") 2>/dev/null \
         | sed -n 's|^.*/\([^/ ]*\) is owned by \(.*\)$|\1  \2|p' | sort
+    echo
+    echo "Microsoft Visual C++ Laufzeit $(basename "$(dirname "$(dirname "$CRT")")") (Redistributable, app-lokal)"
+    echo "Lizenz: Microsoft-Software-Lizenzbedingungen fuer Visual Studio, Abschnitt Distributable Code"
+    for d in "$B"/*.dll; do
+        if ist_msvc_laufzeit "$(basename "$d" | tr '[:upper:]' '[:lower:]')"; then
+            echo "$(basename "$d")  Microsoft Visual C++ Redistributable"
+        fi
+    done
 } > "$L/BIBLIOTHEKEN.txt"
+
+schritt "Abhaengigkeiten im Buendel"
+fehlt=""
+for d in $(importe); do
+    [ -f "$B/$d" ] && continue
+    case "$d" in api-ms-win-* | ext-ms-win-*) continue ;; esac
+    # MSVC-Laufzeit gilt nie als Teil von Windows (nur auf dem Bau-Rechner da)
+    if ! ist_msvc_laufzeit "$d" && [ -f "/c/Windows/System32/$d" ]; then continue; fi
+    fehlt="$fehlt $d"
+done
+[ -z "$fehlt" ] || fehler "nicht im Buendel und nicht Teil von Windows:$fehlt"
+echo "$(importe | wc -l) importierte DLLs, alle im Buendel oder Teil von Windows"
 
 schritt "Ladetest im Buendel"
 gcc -O1 -o "$AUS/laden_test.exe" native/rwspice/test/laden_test.c
