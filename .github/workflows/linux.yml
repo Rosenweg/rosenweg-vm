@@ -88,6 +88,12 @@ jobs:
         run: |
           native/rwtunnel/bauen.sh linux
           native/rwspice/bauen.sh linux
+          # "Ordner freigeben" braucht spice-glib mit phodav (Debian baut es so)
+          if ldd native/rwspice/build/linux/librwspice.so | grep -q libphodav; then
+            echo "phodav: ja ($(ldd native/rwspice/build/linux/librwspice.so | grep libphodav))"
+          else
+            echo "::warning::spice-glib ohne phodav: Ordner freigeben geht unter Linux nicht"
+          fi
 
       - name: Flutter pruefen und bauen
         run: |

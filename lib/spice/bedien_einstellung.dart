@@ -28,6 +28,9 @@ class BedienEinstellung extends ChangeNotifier {
   /// Gast den spice-vdagent; ohne ihn wird das Bild nur eingepasst).
   bool aufloesungAnpassen = true;
 
+  /// Zwischenablage (Text) mit dem Computer teilen, in beide Richtungen.
+  bool zwischenablage = true;
+
   /// Kurze Hilfe zu den Gesten schon gezeigt?
   bool hilfeGesehen = false;
 
@@ -43,18 +46,21 @@ class BedienEinstellung extends ChangeNotifier {
       touch = j['touch'] == 'touchpad' ? TouchModus.touchpad : TouchModus.direkt;
       hilfeGesehen = (j['hilfe'] as bool?) ?? false;
       aufloesungAnpassen = (j['aufloesung'] as bool?) ?? true;
+      zwischenablage = (j['zwischenablage'] as bool?) ?? true;
       notifyListeners();
     } catch (e) {
       Protokoll.schreiben('Bedien-Einstellung unlesbar, Vorgaben', e);
     }
   }
 
-  Future<void> setzen({TouchModus? touch, bool? hilfeGesehen, bool? aufloesungAnpassen}) async {
+  Future<void> setzen({TouchModus? touch, bool? hilfeGesehen, bool? aufloesungAnpassen, bool? zwischenablage}) async {
+    this.zwischenablage = zwischenablage ?? this.zwischenablage;
     this.touch = touch ?? this.touch;
     this.aufloesungAnpassen = aufloesungAnpassen ?? this.aufloesungAnpassen;
     this.hilfeGesehen = hilfeGesehen ?? this.hilfeGesehen;
     notifyListeners();
-    Protokoll.schreiben('Bedienung: Touch ${this.touch.name}, Aufloesung anpassen ${this.aufloesungAnpassen}');
+    Protokoll.schreiben('Bedienung: Touch ${this.touch.name}, Aufloesung anpassen ${this.aufloesungAnpassen}, '
+        'Zwischenablage ${this.zwischenablage}');
     try {
       await vmSpeicher.setzen({'bedienung': jsonEncode(_json())});
     } catch (e) {
@@ -62,7 +68,7 @@ class BedienEinstellung extends ChangeNotifier {
     }
   }
 
-  Map<String, Object> _json() => {'touch': touch.name, 'hilfe': hilfeGesehen, 'aufloesung': aufloesungAnpassen};
+  Map<String, Object> _json() => {'touch': touch.name, 'hilfe': hilfeGesehen, 'aufloesung': aufloesungAnpassen, 'zwischenablage': zwischenablage};
 
   /// Nur fuer Tests: Werte setzen, ohne Schluesselbund.
   @visibleForTesting

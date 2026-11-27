@@ -164,6 +164,9 @@ jobs:
               || { echo "::error::$f nicht auf 16-KB-Seiten ausgerichtet"; exit 1; }
           done
           "$rd" --dyn-syms native/rwspice/build/android/${{ matrix.abi }}/librwspice.so | grep -c ' rw_spice_'
+          # "Ordner freigeben": spice-glib mit WebDAV-Server (rw_spice_ordner_moeglich sucht dieses Symbol)
+          "$rd" --dyn-syms native/spice-stapel/build/android/${{ matrix.abi }}/libspiceglib.so | grep -q ' phodav_server_new$' \
+            || { echo "::error::libspiceglib.so ohne phodav (Ordner freigeben ginge nicht)"; exit 1; }
 
       - uses: actions/upload-artifact@v4
         with:

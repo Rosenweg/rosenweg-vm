@@ -44,7 +44,10 @@ enum SpiceEreignisArt {
   kanal(11),
 
   /// Ordnerfreigabe: a = 1 aktiv, b = 1 Fehler.
-  ordner(12);
+  ordner(12),
+
+  /// Gast hat Text in die Zwischenablage gelegt (holen: [RwSpice.zwischenablageHolen]).
+  zwischenablage(13);
 
   const SpiceEreignisArt(this.code);
   final int code;
@@ -99,6 +102,9 @@ class RwSpice implements SpiceZiel {
         _usbSchalten = lib.lookupFunction<Void Function(Pointer<Utf8>, Int32), void Function(Pointer<Utf8>, int)>('rw_spice_usb_schalten'),
         _ordner = lib.lookupFunction<Void Function(Pointer<Utf8>, Int32), void Function(Pointer<Utf8>, int)>('rw_spice_ordner'),
         ordnerMoeglich = lib.lookupFunction<Int32 Function(), int Function()>('rw_spice_ordner_moeglich')() == 1,
+        _zwAn = lib.lookupFunction<Void Function(Int32), void Function(int)>('rw_spice_zwischenablage_an'),
+        _zwSetzen = lib.lookupFunction<Void Function(Pointer<Utf8>), void Function(Pointer<Utf8>)>('rw_spice_zwischenablage_setzen'),
+        _zwHolen = lib.lookupFunction<Pointer<Utf8> Function(), Pointer<Utf8> Function()>('rw_spice_zwischenablage_holen'),
         _fehler = lib.lookupFunction<Pointer<Utf8> Function(), Pointer<Utf8> Function()>('rw_spice_letzter_fehler'),
         _frei = lib.lookupFunction<Void Function(Pointer<Utf8>), void Function(Pointer<Utf8>)>('rw_spice_frei') {
     // listener: das Ereignis kommt aus dem GLib-Thread und wird hier im
@@ -154,6 +160,33 @@ class RwSpice implements SpiceZiel {
   void bildschirmGroesse(int breite, int hoehe) => _bildschirmGroesse(breite, hoehe);
   final Pointer<Utf8> Function() _usbListe, _fehler;
   final void Function(Pointer<Utf8>, int) _usbSchalten, _ordner;
+
+  final void Function(int) _zwAn;
+  final void Function(Pointer<Utf8>) _zwSetzen;
+  final Pointer<Utf8> Function() _zwHolen;
+
+  /// Zwischenablage mit dem Gast teilen (beide Richtungen) oder nicht.
+  void zwischenablageAn(bool an) => _zwAn(an ? 1 : 0);
+
+  /// Text vom Geraet dem Gast anbieten.
+  void zwischenablageSetzen(String text) {
+    final p = text.toNativeUtf8();
+    try {
+      _zwSetzen(p);
+    } finally {
+      malloc.free(p);
+    }
+  }
+
+  /// Zuletzt vom Gast gekommener Text.
+  String zwischenablageHolen() {
+    final p = _zwHolen();
+    try {
+      return p.toDartString();
+    } finally {
+      _frei(p);
+    }
+  }
 
   /// spice-glib mit WebDAV-Server (phodav) gebaut?
   final bool ordnerMoeglich;

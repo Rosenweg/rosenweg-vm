@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:rosenweg_basis/rosenweg_basis.dart' show FehlerDetails, Fensterklasse;
 
 import '../app_zustand.dart';
@@ -15,6 +16,7 @@ import '../spice/bildschirm.dart';
 import '../spice/belegungen.dart';
 import '../spice/scancodes.dart';
 import '../spice/tastatur_einstellung.dart';
+import '../spice/zwischenablage.dart';
 import 'sondertasten_leiste.dart';
 
 /// Der Bildschirm eines Computers. Oben eine schmale Leiste mit dem Noetigsten:
@@ -38,6 +40,10 @@ class _BildschirmSeiteState extends State<BildschirmSeite> with WidgetsBindingOb
 
   /// Bildschirmtastatur war schon sichtbar (fuer "System hat sie geschlossen").
   bool _imeSichtbar = false;
+
+  late final _ablage = ZwischenablageAbgleich(anGast: _spice.zwischenablageSetzen);
+  Timer? _ablageTakt;
+  static const _ordnerKanal = MethodChannel('rosenweg_vm/ordner');
   StreamSubscription<SpiceEreignis>? _abo;
   _Stand _stand = _Stand.verbinden;
   String? _meldung;
@@ -89,7 +95,15 @@ class _BildschirmSeiteState extends State<BildschirmSeite> with WidgetsBindingOb
     WidgetsBinding.instance.addObserver(this);
     _abo = _spice.ereignisse.listen(_ereignis);
     TastaturEinstellung.i.laden();
-    BedienEinstellung.i.laden();
+    BedienEinstellung.i.laden().then((_) => _ablageSchalten());
+    BedienEinstellung.i.addListener(_ablageSchalten);
+    // Am Rechner merkt die App so, wenn dort etwas kopiert wurde. Auf dem
+    // Handy nur beim Verbinden und Zurueckkommen (jedes Lesen wird gemeldet).
+    if (!(Platform.isAndroid || Platform.isIOS)) {
+      _ablageTakt = Timer.periodic(const Duration(seconds: 2), (_) {
+        if (_stand == _Stand.verbunden) _ablage.geraetPruefen();
+      });
+    }
     _verbinden();
   }
 
@@ -104,6 +118,7 @@ class _BildschirmSeiteState extends State<BildschirmSeite> with WidgetsBindingOb
       _kanaeleBekannt = false;
       _ordner = null; // neue Sitzung: Freigabe ist weg
     });
+    _ablage.vergessen();
     try {
       if (AppZustand.testSpice.isNotEmpty) {
         final teile = AppZustand.testSpice.split(':');
@@ -139,6 +154,10 @@ class _BildschirmSeiteState extends State<BildschirmSeite> with WidgetsBindingOb
   void _ereignis(SpiceEreignis e) {
     if (!mounted) return;
     switch (e.art) {
+      case SpiceEreignisArt.zwischenablage:
+        _ablage.gastHat(_spice.zwischenablageHolen());
+      case SpiceEreignisArt.agent:
+        if (e.a == 1) _ablage.geraetPruefen();
       case SpiceEreignisArt.ordner:
         if (e.b == 1) {
           final t = _spice.letzterFehler();
@@ -188,6 +207,19 @@ class _BildschirmSeiteState extends State<BildschirmSeite> with WidgetsBindingOb
       default:
         break;
     }
+  }
+
+  void _ablageSchalten() {
+    final an = BedienEinstellung.i.zwischenablage;
+    if (_ablage.an == an) return;
+    _ablage.an = an;
+    _spice.zwischenablageAn(an);
+    if (an) _ablage.geraetPruefen();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState s) {
+    if (s == AppLifecycleState.resumed && _stand == _Stand.verbunden) _ablage.geraetPruefen();
   }
 
   /// Schliesst die Person die Bildschirmtastatur selbst (Zurueck-Taste,
@@ -261,8 +293,10 @@ class _BildschirmSeiteState extends State<BildschirmSeite> with WidgetsBindingOb
   /// Ordner (oder Stick unter /Volumes) per SPICE-WebDAV an den Gast geben.
   Future<void> _ordnerMenue() async {
     if (!_spice.ordnerMoeglich) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Ordner freigeben geht mit diesem App-Bau noch nicht (spice-glib ohne WebDAV/phodav).')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(Platform.isIOS
+              ? 'Ordner freigeben geht auf iPhone und iPad noch nicht: der App-Bau für iOS hat keinen WebDAV-Server (phodav).'
+              : 'Ordner freigeben geht mit diesem App-Bau nicht (spice-glib ohne WebDAV/phodav).')));
       return;
     }
     if (_fehlt(SpiceKanal.ordner)) return _hinweis(SpiceKanal.ordner);
@@ -282,10 +316,12 @@ class _BildschirmSeiteState extends State<BildschirmSeite> with WidgetsBindingOb
               icon: const Icon(Icons.folder_open),
               label: Text(_ordner == null ? 'Ordner wählen …' : 'Anderen Ordner …'),
               onPressed: () async {
-                final pfad = await getDirectoryPath(
-                  confirmButtonText: 'Freigeben',
-                  initialDirectory: Platform.isMacOS ? '/Volumes' : null,
-                );
+                final pfad = Platform.isAndroid
+                    ? await _androidOrdner(context)
+                    : await getDirectoryPath(
+                        confirmButtonText: 'Freigeben',
+                        initialDirectory: Platform.isMacOS ? '/Volumes' : null,
+                      );
                 if (pfad == null) return;
                 _spice.ordner(pfad, nurLesen: _ordnerNurLesen);
                 Protokoll.schreiben('Ordner freigeben: $pfad${_ordnerNurLesen ? ' (nur lesen)' : ''}');
@@ -341,6 +377,65 @@ class _BildschirmSeiteState extends State<BildschirmSeite> with WidgetsBindingOb
     _steuerung.fokus();
   }
 
+  /// Android: phodav braucht einen echten Pfad, darum "Zugriff auf alle
+  /// Dateien" (einmal in den Einstellungen) und dann ein Ordner des Speichers.
+  Future<String?> _androidOrdner(BuildContext context) async {
+    var erlaubt = await _ordnerKanal.invokeMethod<bool>('erlaubt') ?? false;
+    if (!erlaubt && context.mounted) {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Zugriff auf Dateien'),
+          content: const Text('Damit der Computer einen Ordner dieses Telefons sieht, braucht die App '
+              '„Zugriff auf alle Dateien“. Android öffnet dafür die Einstellungen; dort den Schalter '
+              'einschalten und zurückkommen.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Abbrechen')),
+            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Einstellungen öffnen')),
+          ],
+        ),
+      );
+      if (ok != true) return null;
+      await _ordnerKanal.invokeMethod<void>('erlauben');
+      // Warten, bis die Person aus den Einstellungen zurueck ist
+      for (var i = 0; i < 120 && !erlaubt; i++) {
+        await Future<void>.delayed(const Duration(seconds: 1));
+        if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
+          erlaubt = await _ordnerKanal.invokeMethod<bool>('erlaubt') ?? false;
+          if (!erlaubt && i > 2) break;
+        }
+      }
+      if (!erlaubt) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Ohne „Zugriff auf alle Dateien“ geht Ordner freigeben nicht.')));
+        }
+        return null;
+      }
+    }
+    final wurzel = await _ordnerKanal.invokeMethod<String>('speicher') ?? '/storage/emulated/0';
+    if (!context.mounted) return null;
+    return showDialog<String>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('Welcher Ordner?'),
+        children: [
+          for (final (name, unter, icon) in const [
+            ('Downloads', 'Download', Icons.download),
+            ('Dokumente', 'Documents', Icons.description),
+            ('Bilder', 'Pictures', Icons.image),
+            ('Kamera', 'DCIM', Icons.photo_camera),
+            ('Ganzer Speicher', '', Icons.sd_storage),
+          ])
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(context, unter.isEmpty ? wurzel : '$wurzel/$unter'),
+              child: ListTile(leading: Icon(icon), title: Text(name)),
+            ),
+        ],
+      ),
+    );
+  }
+
   /// Einstellungen: Tastatur (Modus, Gastbelegung mit Suche, Cmd als Strg,
   /// Mac-ISO) und Beruehrung (direkt / Touchpad, Hilfe).
   Future<void> _tastaturMenue() async {
@@ -393,6 +488,15 @@ class _BildschirmSeiteState extends State<BildschirmSeite> with WidgetsBindingOb
                 onChanged: (v) => t.setzen(macIsoTausch: v),
               ),
           ],
+          SwitchListTile(
+            key: const ValueKey('zwischenablage'),
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Zwischenablage teilen'),
+            subtitle: const Text('Kopierter Text geht zwischen diesem Gerät und dem Computer hin und her '
+                '(braucht im Computer den SPICE-Agent).'),
+            value: bed.zwischenablage,
+            onChanged: (v) => bed.setzen(zwischenablage: v),
+          ),
           SwitchListTile(
             key: const ValueKey('aufloesung-anpassen'),
             contentPadding: EdgeInsets.zero,
@@ -617,6 +721,8 @@ class _BildschirmSeiteState extends State<BildschirmSeite> with WidgetsBindingOb
 
   @override
   void dispose() {
+    _ablageTakt?.cancel();
+    BedienEinstellung.i.removeListener(_ablageSchalten);
     WidgetsBinding.instance.removeObserver(this);
     _steuerung.dispose();
     _kanalWarten?.cancel();
