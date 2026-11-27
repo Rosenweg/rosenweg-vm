@@ -1,4 +1,10 @@
-# Android-APK auf GitHub-Runnern (ubuntu-latest).
+# Android-APK auf dem eigenen Runner (CT 140 auf pve2, Debian, Gruppe
+# rosenweg-privat, [self-hosted, rosenweg]) - GitHub-gehostete Laeufe kosten in
+# privaten Repos Minuten. Muster: rosenweg-salz android.yml und linux.yml hier.
+# Der Runner hat kein allgemeines sudo (nur ein eingeschraenktes apt-get) und
+# kein gh: Flutter, JDK, Android-SDK samt NDK und Go als feste Versionen mit
+# Pruefsumme im Cache des Benutzerverzeichnisses (bleibt zwischen Laeufen),
+# Release ueber github-script.
 #
 # Job "stapel": spice-client-glib samt Abhaengigkeiten fuer arm64-v8a und
 # x86_64 (native/spice-stapel/bauen.sh: GStreamer-Binaerpaket fuer GLib,
@@ -32,12 +38,19 @@ permissions:
 
 env:
   GO_VERSION: "1.27.4"
+  GO_SHA256: 7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840
   FLUTTER_VERSION: "3.47.5"
+  FLUTTER_SHA256: 2132e990f236f8d22e7c6314b29a191a95b10d7cbcfec9b4e2e303d996652cbb
+  JDK_VERSION: "21.0.13.1+2"
+  JDK_SHA256: bb8a93f9ae6e7a693b2b721e85dbeff26ae1a77447985a8d7afcdd9c7cf6222e
+  # cmdline-tools 19.0: ab 23.0 ist sdkmanager nur noch ein Verweis auf die neue "android"-CLI
+  ANDROID_CMDLINE_TOOLS: "13114758"
+  ANDROID_CMDLINE_TOOLS_SHA256: 7ec965280a073311c339e571cd5de778b9975026cfcbe79f2b1cdcb1e15317ee
   NDK_VERSION: "28.2.13676358"
 
 jobs:
   stapel:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, rosenweg]
     timeout-minutes: 90
     strategy:
       fail-fast: false
@@ -46,23 +59,79 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Werkzeuge
+      - &systempakete
+        name: Systempakete
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends meson ninja-build pkg-config \
-            python3-pyparsing python3-six libglib2.0-dev-bin gettext xz-utils
+          noetig="meson ninja-build pkg-config python3 python3-pyparsing python3-six \
+                  libglib2.0-dev-bin gettext xz-utils curl unzip git openssh-client file"
+          fehlt=""
+          for p in $noetig; do dpkg -s "$p" >/dev/null 2>&1 || fehlt="$fehlt $p"; done
+          if [ -n "$fehlt" ]; then
+            echo "Fehlende Pakete:$fehlt"
+            sudo -n apt-get update -qq
+            sudo -n apt-get install -y -qq --no-install-recommends $fehlt
+          fi
           meson --version
 
-      - name: NDK
+      # Flutter, JDK und SDK im selben Cache wie rosenweg-salz/rosenweg-basis
+      # (gleiche Versionen), Go wie linux.yml hier; dazu das NDK.
+      - &werkzeuge
+        name: Flutter, JDK, Android-SDK mit NDK, Go (Cache im Benutzerverzeichnis)
         run: |
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK_VERSION" >/dev/null
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
-
-      - uses: actions/cache@v4
-        with:
-          path: native/spice-stapel/build/quellen
-          key: spice-stapel-quellen-${{ hashFiles('native/spice-stapel/bauen.sh') }}
-          restore-keys: spice-stapel-quellen-
+          set -euo pipefail
+          C="$HOME/.cache/rosenweg-flutter-ci"; mkdir -p "$C"
+          if [ ! -x "$C/flutter-$FLUTTER_VERSION/bin/flutter" ]; then
+            curl -fsSL -o "$C/flutter.txz" "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_$FLUTTER_VERSION-stable.tar.xz"
+            echo "$FLUTTER_SHA256  $C/flutter.txz" | sha256sum -c -
+            mkdir -p "$C/flutter-$FLUTTER_VERSION" && tar -xJf "$C/flutter.txz" -C "$C/flutter-$FLUTTER_VERSION" --strip-components=1 && rm "$C/flutter.txz"
+          fi
+          J="$C/jdk-${JDK_VERSION//+/_}"
+          if [ ! -x "$J/bin/java" ]; then
+            curl -fsSL -o "$C/jdk.tgz" "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-${JDK_VERSION//+/%2B}/OpenJDK21U-jdk_x64_linux_hotspot_${JDK_VERSION//+/_}.tar.gz"
+            echo "$JDK_SHA256  $C/jdk.tgz" | sha256sum -c -
+            mkdir -p "$J" && tar -xzf "$C/jdk.tgz" -C "$J" --strip-components=1 && rm "$C/jdk.tgz"
+          fi
+          A="$C/android-sdk"
+          if [ ! -x "$A/cmdline-tools/$ANDROID_CMDLINE_TOOLS/bin/sdkmanager" ]; then
+            curl -fsSL -o "$C/ct.zip" "https://dl.google.com/android/repository/commandlinetools-linux-${ANDROID_CMDLINE_TOOLS}_latest.zip"
+            echo "$ANDROID_CMDLINE_TOOLS_SHA256  $C/ct.zip" | sha256sum -c -
+            rm -rf "$C/ct" && unzip -q "$C/ct.zip" -d "$C/ct" && rm "$C/ct.zip"
+            mkdir -p "$A/cmdline-tools"
+            rm -rf "$A/cmdline-tools/$ANDROID_CMDLINE_TOOLS" && mv "$C/ct/cmdline-tools" "$A/cmdline-tools/$ANDROID_CMDLINE_TOOLS" && rm -rf "$C/ct"
+          fi
+          ln -sfn "$ANDROID_CMDLINE_TOOLS" "$A/cmdline-tools/latest"
+          sdk() { JAVA_HOME="$J" "$A/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$A" "$@"; }
+          (yes || true) | sdk --licenses >/dev/null
+          [ -d "$A/platform-tools" ] || sdk "platform-tools" >/dev/null
+          [ -x "$A/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64/bin/clang" ] || sdk "ndk;$NDK_VERSION" >/dev/null
+          for d in licenses platform-tools "ndk/$NDK_VERSION"; do
+            [ -d "$A/$d" ] || { echo "::error::Android-SDK unvollstaendig: $A/$d fehlt"; exit 1; }
+          done
+          G="$HOME/.cache/rosenweg-vm-ci"; mkdir -p "$G"
+          if [ ! -x "$G/go-$GO_VERSION/bin/go" ]; then
+            curl -fsSL -o "$G/go.tgz" "https://dl.google.com/go/go$GO_VERSION.linux-amd64.tar.gz"
+            echo "$GO_SHA256  $G/go.tgz" | sha256sum -c -
+            mkdir -p "$G/go-$GO_VERSION" && tar -xzf "$G/go.tgz" -C "$G/go-$GO_VERSION" --strip-components=1 && rm "$G/go.tgz"
+          fi
+          {
+            echo "$C/flutter-$FLUTTER_VERSION/bin"
+            echo "$J/bin"
+            echo "$G/go-$GO_VERSION/bin"
+          } >> "$GITHUB_PATH"
+          {
+            echo "JAVA_HOME=$J"
+            echo "ANDROID_HOME=$A"
+            echo "ANDROID_SDK_ROOT=$A"
+            echo "ANDROID_NDK_HOME=$A/ndk/$NDK_VERSION"
+            echo "GRADLE_USER_HOME=$C/gradle"
+            echo "GRADLE_OPTS=-Dorg.gradle.daemon=false"
+            echo "PUB_CACHE=$C/pub-cache"
+            echo "GOPATH=$G/gopath"
+            echo "GOMODCACHE=$G/gopath/pkg/mod"
+            echo "GOTOOLCHAIN=local"
+            # Quellarchive des SPICE-Stapels (~1 GB GStreamer-Paket) bleiben hier liegen
+            echo "RW_STAPEL_QUELLEN=$G/spice-stapel-quellen"
+          } >> "$GITHUB_ENV"
 
       - name: SPICE-Stapel
         run: native/spice-stapel/bauen.sh android ${{ matrix.abi }}
@@ -98,30 +167,18 @@ jobs:
 
   apk:
     needs: stapel
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, rosenweg]
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
+      - *systempakete
 
-      - uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: false
+      - *werkzeuge
 
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: stable
-
-      - name: NDK
-        run: |
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK_VERSION" >/dev/null
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+      # Eigener Runner: der Arbeitsordner bleibt zwischen Laeufen liegen.
+      - name: stapel/ und ausgabe/ leeren
+        run: rm -rf stapel ausgabe
 
       - uses: actions/download-artifact@v4
         with:
@@ -214,28 +271,55 @@ jobs:
   veroeffentlichen:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: apk
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, rosenweg]
     timeout-minutes: 15
     permissions:
       contents: write
       id-token: write
     steps:
+      # Eigener Runner: der Arbeitsordner bleibt zwischen Jobs liegen
+      # (rosenweg-salz v1.0.0: fremdes .deb mit hochgeladen). Darum vorher leeren.
+      - name: ausgabe/ leeren
+        run: rm -rf ausgabe
+
       - uses: actions/download-artifact@v4
         with:
           name: rosenweg-vm-android
           path: ausgabe
 
+      # Ohne gh (gibt es auf dem eigenen Runner nicht), wie rosenweg-salz.
       - name: Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          # die anderen Plattformen legen dasselbe Release womoeglich gleichzeitig an
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
-            || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes "Android" \
-            || gh release view "$GITHUB_REF_NAME" >/dev/null
-          gh release upload "$GITHUB_REF_NAME" ausgabe/*.apk --clobber
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const tag = context.ref.replace('refs/tags/', '');
+            const repo = { owner: context.repo.owner, repo: context.repo.repo };
+            // die anderen Plattformen legen dasselbe Release womoeglich gleichzeitig an
+            const finden = () => github.rest.repos.getReleaseByTag({ ...repo, tag });
+            let rel;
+            try {
+              rel = await finden();
+            } catch (e) {
+              try {
+                rel = await github.rest.repos.createRelease({ ...repo, tag_name: tag, name: tag, body: 'Android' });
+              } catch (e2) {
+                rel = await finden();
+              }
+            }
+            const dateien = fs.readdirSync('ausgabe').filter((f) => f.endsWith('.apk'));
+            if (!dateien.length) throw new Error('Keine APK in ausgabe/');
+            for (const f of dateien) {
+              // wie 'gh release upload --clobber'
+              const alt = rel.data.assets.find((a) => a.name === f);
+              if (alt) await github.rest.repos.deleteReleaseAsset({ ...repo, asset_id: alt.id });
+              await github.rest.repos.uploadReleaseAsset({
+                ...repo, release_id: rel.data.id, name: f,
+                data: fs.readFileSync(path.join('ausgabe', f)),
+              });
+              core.info(`Hochgeladen: ${f}`);
+            }
 
       - name: Debug-Bau?
         id: art

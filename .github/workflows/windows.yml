@@ -1,7 +1,9 @@
 # Windows-Installer auf einem von GitHub gehosteten Windows-Runner.
 #
-# Windows-Minuten zaehlen bei privaten Repos doppelt; darum nur, wenn sich
-# etwas fuer Windows aendert (Pfadfilter), von Hand oder bei einem Tag v*.
+# Windows-Minuten zaehlen bei privaten Repos doppelt (und scheitern ohne
+# Guthaben/Ausgabenlimit): nur von Hand oder bei einem Tag v*, nie bei PR/Push.
+# Ohne eigenen Windows-Runner kostet jeder Lauf GitHub-Minuten. Eine
+# Windows-Aenderung vor dem Merge pruefen: gh workflow run windows.yml --ref <zweig>
 #
 # Ablauf (siehe docs/plattformen.md, Windows):
 #   MSYS2 UCRT64 mit spice-gtk (liefert spice-glib, GLib, GStreamer-Kern,
@@ -15,13 +17,6 @@
 name: Windows
 
 on:
-  pull_request:
-    paths:
-      - 'windows/**'
-      - 'native/**'
-      - 'lib/**'
-      - 'pubspec.*'
-      - '.github/workflows/windows.yml'
   push:
     tags: ['v*']
   workflow_dispatch:
