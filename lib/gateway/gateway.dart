@@ -49,7 +49,7 @@ class Gateway {
     final j = a.json;
     if (a.status != 200) {
       final m = j is Map ? j['error'] as String? : null;
-      throw GatewayFehler(a.status, m ?? 'Fehler ${a.status}');
+      throw GatewayFehler(a.status, m ?? 'Der Dienst für die virtuellen Computer antwortet nicht richtig (Fehler ${a.status}). Bitte später nochmals versuchen.');
     }
     return j;
   }

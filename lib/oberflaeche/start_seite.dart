@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import 'package:flutter/material.dart';
-import 'package:rosenweg_basis/rosenweg_basis.dart' show AnmeldeArt, Fensterklasse, RosenwegGeruest, zeigeAnmeldung;
+import 'package:rosenweg_basis/rosenweg_basis.dart'
+    show AnmeldeArt, FehlerAnzeige, Fensterklasse, RosenwegGeruest, zeigeAnmeldung, zeigeUeber;
 
 import '../app_zustand.dart';
+import '../vm_app.dart';
 import '../netz/netzlage.dart';
 import '../gateway/gateway.dart';
 import 'bildschirm_seite.dart';
@@ -20,7 +22,9 @@ class StartSeite extends StatelessWidget {
     return ListenableBuilder(
       listenable: zustand,
       builder: (context, _) => RosenwegGeruest(
-        titel: const Text('Meine Computer'),
+        // Bei 400 px wurde der Titel zu „Mein…“ (Test win11-1): die Lage
+        // steht dort nur als Symbol, der Titel darf umbrechen.
+        titel: const Text('Meine Computer', maxLines: 2, softWrap: true, overflow: TextOverflow.fade),
         aktionen: [
           _LageAnzeige(zustand: zustand),
           if (zustand.phase == Phase.liste)
@@ -46,7 +50,7 @@ class StartSeite extends StatelessWidget {
             },
             onSelected: (wahl) => switch (wahl) {
               'anmeldung' => zeigeAnmeldung(context, zustand.sitzung),
-              'ueber' => _ueber(context),
+              'ueber' => zeigeUeber(context, vmApp),
               _ => zustand.abmelden(),
             },
           ),
@@ -56,24 +60,15 @@ class StartSeite extends StatelessWidget {
     );
   }
 
-  void _ueber(BuildContext context) {
-    showAboutDialog(
-      context: context,
-      applicationName: 'Rosenweg Virtuelle Computer',
-      applicationIcon: const _Logo(groesse: 64),
-      applicationLegalese: 'Freie Software unter der GPL-3.0-or-later.',
-    );
-  }
-
   Widget _inhalt(BuildContext context) {
     switch (zustand.phase) {
       case Phase.tunnel:
         return const _Hinweis(warten: true, text: 'Sichere Verbindung ins Haus wird aufgebaut …');
       case Phase.fehler:
-        return _Hinweis(text: 'Es hat nicht geklappt:\n${zustand.fehler}', knopf: 'Nochmals', aktion: zustand.starten);
+        return FehlerAnzeige(text: zustand.fehler ?? '', details: zustand.fehlerDetails, nochmals: zustand.starten);
       case Phase.liste:
         if (zustand.computer.isEmpty) {
-          return const _Hinweis(text: 'Fuer Sie ist noch kein Computer freigegeben.');
+          return const _Hinweis(text: 'Für Sie ist noch kein Computer freigegeben.');
         }
         final breit = Fensterklasse.von(context).istBreit;
         final liste = ListView.separated(
@@ -101,8 +96,9 @@ class _Zeile extends StatelessWidget {
     final farbe = Theme.of(context).colorScheme;
     return ListTile(
       leading: Icon(Icons.computer, size: 32, color: c.laeuft ? farbe.primary : farbe.outline),
-      title: Text(c.name, style: const TextStyle(fontSize: 18)),
-      subtitle: Text(c.laeuft ? (c.darfOeffnen ? 'laeuft' : 'laeuft · nur Anzeige in der Liste') : 'ausgeschaltet'),
+      // Name ganz lesbar, auch schmal: umbrechen statt kuerzen.
+      title: Text(c.name, style: const TextStyle(fontSize: 18), softWrap: true),
+      subtitle: Text(c.laeuft ? (c.darfOeffnen ? 'läuft' : 'läuft · nur Anzeige in der Liste') : 'ausgeschaltet'),
       trailing: c.laeuft
           ? (c.darfOeffnen ? const Icon(Icons.chevron_right) : null)
           : (c.darfEinschalten ? const Icon(Icons.power_settings_new) : null),
@@ -134,7 +130,7 @@ class _Zeile extends StatelessWidget {
       await zustand.einschalten(c);
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Einschalten ging nicht: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Einschalten ging nicht. ${vmFehler(e).text}')));
       }
     }
   }
@@ -151,6 +147,15 @@ class _LageAnzeige extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (icon, farbe, text) = lageAnzeige(zustand.phase, zustand.netz);
+    // Schmal (Handy, Fenster unter 600 px): nur das Symbol, der Text als
+    // Tooltip - sonst bleibt fuer den Titel nichts uebrig.
+    if (Fensterklasse.von(context) == Fensterklasse.kompakt) {
+      return Tooltip(
+        message: text,
+        triggerMode: TooltipTriggerMode.tap,
+        child: Padding(padding: const EdgeInsets.symmetric(horizontal: 8), child: Icon(icon, color: farbe, semanticLabel: text)),
+      );
+    }
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8),
       child: Chip(avatar: Icon(icon, color: farbe, size: 18), label: Text(text)),
@@ -183,11 +188,9 @@ class _LageAnzeige extends StatelessWidget {
 }
 
 class _Hinweis extends StatelessWidget {
-  const _Hinweis({required this.text, this.warten = false, this.knopf, this.aktion});
+  const _Hinweis({required this.text, this.warten = false});
   final String text;
   final bool warten;
-  final String? knopf;
-  final VoidCallback? aktion;
 
   @override
   Widget build(BuildContext context) {
@@ -197,28 +200,8 @@ class _Hinweis extends StatelessWidget {
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           if (warten) const Padding(padding: EdgeInsets.only(bottom: 24), child: CircularProgressIndicator()),
           Text(text, textAlign: TextAlign.center, style: Theme.of(context).textTheme.titleMedium),
-          if (knopf != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 24),
-              child: FilledButton(onPressed: aktion, child: Text(knopf!)),
-            ),
         ]),
       ),
     );
   }
-}
-
-/// App-Logo (Turm, Weg, Rose mit Monitor-Plakette), assets/logo/erzeugen.sh.
-class _Logo extends StatelessWidget {
-  const _Logo({required this.groesse});
-  final double groesse;
-
-  @override
-  Widget build(BuildContext context) => Image.asset(
-        'assets/logo/rosenweg-vm-512.png',
-        width: groesse,
-        height: groesse,
-        filterQuality: FilterQuality.medium,
-        semanticLabel: 'Rosenweg Virtuelle Computer',
-      );
 }

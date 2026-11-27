@@ -19,7 +19,7 @@ class ZuVieleAnfragen implements Exception {
   @override
   String toString() {
     final w = warten;
-    if (w == null) return 'Zu viele Anfragen – bitte etwas spaeter nochmals versuchen.';
+    if (w == null) return 'Zu viele Anfragen – bitte etwas später nochmals versuchen.';
     if (w.inSeconds < 120) return 'Zu viele Anfragen – bitte in ${w.inSeconds} Sekunden nochmals versuchen.';
     return 'Zu viele Anfragen – bitte in ${(w.inSeconds / 60).ceil()} Minuten nochmals versuchen.';
   }

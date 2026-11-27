@@ -1,10 +1,16 @@
-; SPDX-License-Identifier: GPL-3.0-or-later
+﻿; SPDX-License-Identifier: GPL-3.0-or-later
 ; Installer fuer Rosenweg Virtuelle Computer (Inno Setup 6).
 ; Aufruf ueber windows/installer/bauen.sh, das Version, Buendel, UsbDk-MSI und
 ; Symbol mit /D uebergibt.
 ;
 ; - Installation pro Person nach %LOCALAPPDATA%\Programs, ohne Administrator-
 ;   rechte (wie die App selbst: kein Dienst, kein Treiber, kein VPN).
+; - Domaenen-PCs (AppLocker: nur %PROGRAMFILES%/%WINDIR%): nur per GPO mit
+;   /VERYSILENT /ALLUSERS nach C:\Program Files. Die App erkennt das und
+;   laesst ihren Updater aus (rosenweg_basis RosenwegVerwaltet); Updates
+;   kommen ebenfalls per GPO. "Fuer alle" gibt es nur auf der Befehlszeile,
+;   nicht im Dialog: sonst bekaemen Heim-Installationen keine Updates.
+; - Datei UTF-8 mit BOM (Umlaute in sichtbaren Texten).
 ; - Optional UsbDk (Treiber fuer USB-Durchreichen, Apache-2.0): nur dieser
 ;   Schritt fragt einmal nach Administratorrechten (msiexec, UAC).
 ; - Gleiche AppId = Update an Ort und Stelle; Anmeldung und Geraete-Kennung
@@ -31,7 +37,7 @@ DefaultDirName={autopf}\Rosenweg Virtuelle Computer
 DefaultGroupName=Rosenweg
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
-PrivilegesRequiredOverridesAllowed=dialog
+PrivilegesRequiredOverridesAllowed=commandline
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0.17763
@@ -49,7 +55,7 @@ Name: "de"; MessagesFile: "compiler:Languages\German.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "Symbol auf dem Desktop"; Flags: unchecked
-Name: "usbdk"; Description: "USB-Geraete an Computer durchreichen (Treiber UsbDk, fragt einmal nach Administratorrechten)"; Flags: unchecked
+Name: "usbdk"; Description: "USB-Geräte an Computer durchreichen (Treiber UsbDk, fragt einmal nach Administratorrechten)"; Flags: unchecked
 
 [Files]
 Source: "{#Buendel}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs

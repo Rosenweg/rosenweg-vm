@@ -32,7 +32,10 @@ class AppZustand extends ChangeNotifier {
   late final Netzlage netz;
 
   Phase phase = Phase.tunnel;
+
+  /// Satz fuer die Person; [fehlerDetails] = Technik unter "Details".
   String? fehler;
+  String? fehlerDetails;
   List<Computer> computer = const [];
 
   Gateway? get gateway => netz.gateway;
@@ -57,12 +60,20 @@ class AppZustand extends ChangeNotifier {
     super.dispose();
   }
 
-  void _setzen(Phase p, [String? f]) {
+  void _setzen(Phase p, [String? f, String? details]) {
     if (_weg) return;
-    if (p != phase || f != null) Protokoll.schreiben('Phase ${p.name}${f != null ? ' — $f' : ''}');
+    if (p != phase || f != null) {
+      Protokoll.schreiben('Phase ${p.name}${f != null ? ' — $f' : ''}${details != null ? ' ($details)' : ''}');
+    }
     phase = p;
     fehler = f;
+    fehlerDetails = details;
     notifyListeners();
+  }
+
+  void _fehler(Object e) {
+    final f = vmFehler(e);
+    _setzen(Phase.fehler, f.text, f.details);
   }
 
   /// Sobald die Sitzung bereit ist (VmHaupt): Tunnel, dann Liste.
@@ -93,9 +104,9 @@ class AppZustand extends ChangeNotifier {
         _abgelehnt();
         return;
       }
-      _setzen(Phase.fehler, '$e');
+      _fehler(e);
     } catch (e) {
-      _setzen(Phase.fehler, '$e');
+      _fehler(e);
     }
   }
 
@@ -111,9 +122,9 @@ class AppZustand extends ChangeNotifier {
         _abgelehnt();
         return;
       }
-      _setzen(Phase.fehler, '$e');
+      _fehler(e);
     } catch (e) {
-      _setzen(Phase.fehler, '$e');
+      _fehler(e);
     }
   }
 
@@ -144,4 +155,15 @@ class AppZustand extends ChangeNotifier {
   /// damit der Tunnel-Schluessel sofort ungueltig ist. Die Anmeldung bleibt
   /// fuer den naechsten Start.
   Future<void> schliessen() => netz.abbauen();
+}
+
+/// Fehler → Satz fuer die Person und Technik fuer "Details" (wie
+/// [fehlerFuerPerson] der Basis, dazu die Fehler der VM-App). Vorher stand
+/// der rohe Text auf dem Schirm (Test win11-1: "Bad state: …").
+({String text, String? details}) vmFehler(Object e) {
+  if (e is TunnelFehler && e.technisch) {
+    return (text: 'Die sichere Verbindung ins Haus kam nicht zustande. Bitte nochmals versuchen.', details: e.text);
+  }
+  if (e is TunnelFehler || e is GatewayFehler) return (text: '$e', details: null);
+  return fehlerFuerPerson(e);
 }

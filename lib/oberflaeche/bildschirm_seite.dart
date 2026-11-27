@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
+import 'package:rosenweg_basis/rosenweg_basis.dart' show FehlerDetails, Fensterklasse;
 
 import '../app_zustand.dart';
 import '../native/rwspice.dart';
@@ -32,6 +33,9 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
   StreamSubscription<SpiceEreignis>? _abo;
   _Stand _stand = _Stand.verbinden;
   String? _meldung;
+
+  /// Technik zur [_meldung] (aufklappbar unter "Details").
+  String? _details;
   bool _ton = true;
   // Mikrofon ist aus, bis die Person es einschaltet: ein Gast soll nicht
   // ungefragt mithoeren koennen.
@@ -49,9 +53,9 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
   bool _ordnerNurLesen = false;
 
   static const _ohne = {
-    SpiceKanal.wiedergabe: 'Dieser Computer hat keine Tonausgabe ueber SPICE – Technik: Audio-Geraet „SPICE“ hinzufuegen.',
-    SpiceKanal.aufnahme: 'Dieser Computer hat keinen Toneingang ueber SPICE – Technik: Audio-Geraet „SPICE“ hinzufuegen.',
-    SpiceKanal.usb: 'Dieser Computer hat keine USB-Weiterleitung ueber SPICE – Technik: USB-Geraet „Spice-Port“ hinzufuegen.',
+    SpiceKanal.wiedergabe: 'Dieser Computer hat keine Tonausgabe über SPICE – Technik: Audio-Gerät „SPICE“ hinzufügen.',
+    SpiceKanal.aufnahme: 'Dieser Computer hat keinen Toneingang über SPICE – Technik: Audio-Gerät „SPICE“ hinzufügen.',
+    SpiceKanal.usb: 'Dieser Computer hat keine USB-Weiterleitung über SPICE – Technik: USB-Gerät „Spice-Port“ hinzufügen.',
     SpiceKanal.ordner: 'Dieser Computer kann keine Ordner annehmen – Technik: spice-webdavd installieren.',
   };
 
@@ -85,6 +89,7 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
     setState(() {
       _stand = _Stand.verbinden;
       _meldung = null;
+      _details = null;
       _kanaele.clear();
       _kanaeleBekannt = false;
       _ordner = null; // neue Sitzung: Freigabe ist weg
@@ -114,7 +119,9 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
       if (!mounted) return;
       setState(() {
         _stand = _Stand.getrennt;
-        _meldung = '$e';
+        final f = vmFehler(e);
+        _meldung = f.text;
+        _details = f.details;
       });
     }
   }
@@ -153,19 +160,20 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
           _stand = _Stand.getrennt;
           final text = switch (grund) {
             TrennGrund.normal => 'Die Verbindung wurde beendet.',
-            TrennGrund.tls => 'Die Verbindung war nicht vertrauenswuerdig und wurde abgebrochen.',
+            TrennGrund.tls => 'Die Verbindung war nicht vertrauenswürdig und wurde abgebrochen.',
             TrennGrund.anmeldung => 'Die Freigabe war abgelaufen.',
             TrennGrund.verbindung => 'Der Computer war nicht erreichbar.',
             TrennGrund.anderes => 'Die Verbindung ist abgebrochen.',
           };
           // Technischer Grund sichtbar mit dazu, damit man ihn melden kann.
-          _meldung = technik.isNotEmpty && grund != TrennGrund.normal ? '$text\n\nTechnisch: $technik' : text;
+          _meldung = text;
+          _details = technik.isNotEmpty && grund != TrennGrund.normal ? technik : null;
         });
       case SpiceEreignisArt.mikrofon:
         setState(() => _gastNimmtAuf = e.a == 1);
       case SpiceEreignisArt.usbFehler:
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('USB-Geraet: ${_spice.letzterFehler()}')));
+            .showSnackBar(SnackBar(content: Text('USB-Gerät: ${_spice.letzterFehler()}')));
       default:
         break;
     }
@@ -183,17 +191,17 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
       builder: (context) => StatefulBuilder(builder: (context, neu) {
         final aktuell = _spice.usbListe();
         return ListView(shrinkWrap: true, children: [
-          const ListTile(title: Text('USB-Geraete an diesen Computer weitergeben')),
+          const ListTile(title: Text('USB-Geräte an diesen Computer weitergeben')),
           if (liste.isEmpty)
-            const ListTile(title: Text('Keine USB-Geraete gefunden.')),
+            const ListTile(title: Text('Keine USB-Geräte gefunden.')),
           for (final g in aktuell)
             SwitchListTile(
-              title: Text(g.name.isEmpty ? 'USB-Geraet ${g.id}' : g.name),
+              title: Text(g.name.isEmpty ? 'USB-Gerät ${g.id}' : g.name),
               subtitle: g.macTreiber.isNotEmpty
-                  ? Text('${g.macTreiber}: nutzt der Mac selbst. USB-Sticks bitte ueber „Ordner freigeben“ einbinden.')
+                  ? Text('${g.macTreiber}: nutzt der Mac selbst. USB-Sticks bitte über „Ordner freigeben“ einbinden.')
                   : g.moeglich
                       ? null
-                      : Text(g.grund.isEmpty ? 'nicht moeglich' : g.grund),
+                      : Text(g.grund.isEmpty ? 'nicht möglich' : g.grund),
               value: g.verbunden,
               onChanged: g.moeglich
                   ? (an) {
@@ -232,7 +240,7 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
           Wrap(spacing: 8, children: [
             FilledButton.icon(
               icon: const Icon(Icons.folder_open),
-              label: Text(_ordner == null ? 'Ordner waehlen …' : 'Anderen Ordner …'),
+              label: Text(_ordner == null ? 'Ordner wählen …' : 'Anderen Ordner …'),
               onPressed: () async {
                 final pfad = await getDirectoryPath(
                   confirmButtonText: 'Freigeben',
@@ -261,7 +269,7 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
             'dav://localhost:9843/). Braucht das Paket spice-webdavd.\n'
             '• Windows: als Netzlaufwerk (z. B. Z:) nach dem Start von „Spice webdav proxy“ '
             '(in den SPICE Guest Tools).\n'
-            'USB-Sticks am Mac: den Stick unter /Volumes waehlen.',
+            'USB-Sticks am Mac: den Stick unter /Volumes wählen.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ]),
@@ -282,7 +290,7 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
           const SizedBox(height: 12),
           SegmentedButton<TastaturModus>(
             segments: const [
-              ButtonSegment(value: TastaturModus.zeichen, label: Text('Zeichen uebersetzen')),
+              ButtonSegment(value: TastaturModus.zeichen, label: Text('Zeichen übersetzen')),
               ButtonSegment(value: TastaturModus.direkt, label: Text('Tasten direkt')),
             ],
             selected: {t.modus},
@@ -379,8 +387,9 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
     return Scaffold(
       appBar: AppBar(
         toolbarHeight: 44,
-        title: Text(widget.computer.name),
-        actions: [
+        // Name des Computers ganz (Tooltip), auch wenn er schmal gekuerzt wird.
+        title: Tooltip(message: widget.computer.name, child: Text(widget.computer.name)),
+        actions: _schmalOderBreit(context, [
           // Fehlt ein Kanal, bleibt der Knopf sichtbar, aber grau; ein Druck
           // sagt warum (statt still nichts zu tun).
           if (_fehlt(SpiceKanal.wiedergabe))
@@ -421,7 +430,7 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
               onPressed: () => _hinweis(SpiceKanal.usb),
             )
           else
-            IconButton(tooltip: 'USB-Geraete', icon: const Icon(Icons.usb), onPressed: _usbMenue),
+            IconButton(tooltip: 'USB-Geräte', icon: const Icon(Icons.usb), onPressed: _usbMenue),
           IconButton(
             tooltip: _ordner == null ? 'Ordner freigeben' : 'Freigegeben: $_ordner',
             icon: Icon(_ordner == null ? Icons.folder_shared_outlined : Icons.folder_shared,
@@ -430,7 +439,7 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
           ),
           IconButton(tooltip: 'Tastatur', icon: const Icon(Icons.keyboard_alt_outlined), onPressed: _tastaturMenue),
           IconButton(tooltip: 'Strg+Alt+Entf senden', icon: const Icon(Icons.keyboard), onPressed: _strgAltEntf),
-        ],
+        ]),
       ),
       body: Stack(children: [
         Positioned.fill(
@@ -450,9 +459,10 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
                       if (_stand == _Stand.verbinden) ...[
                         const CircularProgressIndicator(),
                         const SizedBox(height: 16),
-                        const Text('Bildschirm wird geoeffnet …'),
+                        const Text('Bildschirm wird geöffnet …'),
                       ] else ...[
                         Text(_meldung ?? 'Getrennt', textAlign: TextAlign.center),
+                        if (_details != null) ConstrainedBox(constraints: const BoxConstraints(maxWidth: 420), child: FehlerDetails(_details!)),
                         const SizedBox(height: 16),
                         FilledButton(onPressed: _verbinden, child: const Text('Neu verbinden')),
                       ],
@@ -464,6 +474,27 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
           ),
       ]),
     );
+  }
+
+  /// Schmal (unter 600 px) passen die sieben Knoepfe nicht neben den Namen
+  /// (Test win11-1 bei 400 px: „dis…“). Dann stehen sie mit Text in einem
+  /// Menue „Mehr“; breit bleiben sie als Symbole.
+  List<Widget> _schmalOderBreit(BuildContext context, List<IconButton> knoepfe) {
+    if (Fensterklasse.von(context) != Fensterklasse.kompakt) return knoepfe;
+    return [
+      PopupMenuButton<int>(
+        tooltip: 'Mehr',
+        icon: const Icon(Icons.more_vert),
+        onSelected: (i) => knoepfe[i].onPressed?.call(),
+        itemBuilder: (_) => [
+          for (var i = 0; i < knoepfe.length; i++)
+            PopupMenuItem(
+              value: i,
+              child: ListTile(contentPadding: EdgeInsets.zero, leading: knoepfe[i].icon, title: Text(knoepfe[i].tooltip ?? '')),
+            ),
+        ],
+      ),
+    ];
   }
 
   @override

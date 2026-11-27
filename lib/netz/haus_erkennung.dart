@@ -130,7 +130,7 @@ Future<List<String>> txtAbfragen(String name, List<InternetAddress> server,
         if (werte != null) {
           ergebnis.complete(werte);
         } else if (--offen == 0) {
-          ergebnis.completeError(const FormatException('keine gueltige Antwort'));
+          ergebnis.completeError(const FormatException('keine gültige Antwort'));
         }
       });
       sock.send(frage, s, port);

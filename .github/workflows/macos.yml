@@ -65,7 +65,7 @@ jobs:
           sudo installer -pkg /tmp/macports.pkg -target /
           echo "/opt/local/bin" >> "$GITHUB_PATH"
           sudo /opt/local/bin/port -N selfupdate
-          sudo /opt/local/bin/port -N install spice-gtk libusb pkgconfig
+          sudo /opt/local/bin/port -N install spice-gtk spice-protocol libusb pkgconfig
 
       - name: Signierzertifikat (falls Secret gesetzt)
         env:

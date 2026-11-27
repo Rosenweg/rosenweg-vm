@@ -53,7 +53,7 @@ class RwTunnel {
   Map<String, dynamic> _lesen(Pointer<Utf8> p) {
     try {
       final m = jsonDecode(p.toDartString()) as Map<String, dynamic>;
-      if (m['fehler'] != null) throw TunnelFehler(m['fehler'] as String);
+      if (m['fehler'] != null) throw TunnelFehler(m['fehler'] as String, technisch: true);
       return m;
     } finally {
       _frei(p);
@@ -130,8 +130,11 @@ class RwTunnel {
 }
 
 class TunnelFehler implements Exception {
-  TunnelFehler(this.text, {this.status});
+  TunnelFehler(this.text, {this.status, this.technisch = false});
   final String text;
+
+  /// Roher Text der Go-Bibliothek (nicht fuer die Person, nur "Details").
+  final bool technisch;
 
   /// HTTP-Status der Haupt-API, falls sie abgelehnt hat (401 = neu anmelden).
   final int? status;
