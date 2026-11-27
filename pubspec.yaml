@@ -47,8 +47,7 @@ dependencies:
   rosenweg_basis:
     git:
       url: https://github.com/Rosenweg/rosenweg-basis.git
-      # Bis Tag v0.5.1 (rosenweg-basis PR #15): Commit des Zweigs maengel-windows
-      ref: 9064222031fe06953b82559617655bb617baf77f
+      ref: v0.5.1
 
 dev_dependencies:
   flutter_test:
