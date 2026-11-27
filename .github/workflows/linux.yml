@@ -45,6 +45,11 @@ jobs:
 
       - uses: actions/checkout@v4
 
+      # Im Container gehoert das Arbeitsverzeichnis einem anderen Benutzer; ohne
+      # safe.directory bricht `go build` mit "error obtaining VCS status" ab.
+      - name: Git safe.directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
       - name: Werkzeug-Cache
         uses: actions/cache@v4
         with:
