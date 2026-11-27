@@ -6,14 +6,14 @@ Stand 25.11.2026. Aufwand grob in Personentagen (PT), ohne Store-Verfahren.
 
 | | Linux (Stationen) | Windows | macOS | Android | iOS/iPadOS |
 |---|---|---|---|---|---|
-| spice-glib | Debian-Paket | MSYS2 (UCRT64) | MacPorts (Entw.), eigener Bau (Auslieferung) | ✓ GStreamer-Binärpaket + eigener Bau (NDK) | eigener Bau (Xcode) |
-| rwtunnel (Go) | c-shared | ✓ c-shared (mingw) | ✓ gebaut | ✓ gebaut (arm64, x86_64) | ✓ gebaut (c-archive) |
+| spice-glib | Debian-Paket | MSYS2 (UCRT64) | MacPorts (Entw.), eigener Bau (Auslieferung) | ✓ GStreamer-Binärpaket + eigener Bau (NDK) | ✓ GStreamer-Binärpaket + eigener Bau (Xcode) |
+| rwtunnel (Go) | c-shared | ✓ c-shared (mingw) | ✓ gebaut | ✓ gebaut (arm64, x86_64) | ✓ gebaut (c-archive → RwNative.framework) |
 | Ton | PipeWire/Pulse/ALSA | WASAPI | ✓ CoreAudio (Wiedergabe getestet) | AAudio/OpenSL | CoreAudio + AVAudioSession |
 | Mikrofon | keine Rechte | Datenschutz-Einstellung | Erlaubnis-Dialog | RECORD_AUDIO | Erlaubnis-Dialog |
 | USB | ja (Rechte nötig) | ja (UsbDk-Treiber) | eingeschränkt | ja (Android-USB-Host) | **nein** |
-| Anmeldung (einmal, 30 Tage) | localhost | localhost | localhost | Schema (rosenweg_basis) | eigenes Schema |
-| DNS-Server für „im Haus“ | resolv.conf | PowerShell/ipconfig | resolv.conf/scutil | LinkProperties (rosenweg_basis) | offen (libresolv) |
-| Stand | **.deb gebaut** (CT 141, 26.11.2026), Start unter Xvfb bis zur Anmeldung | **Installer gebaut** (CI windows-latest, 26.11.2026), Ladetest + Start im Runner, nicht an echter VM getestet | **DMG gebaut** (arm64, ab macOS 26, ad hoc) | **APK gebaut** (arm64-v8a, x86_64; Stapel in CI, APK lokal mit Rosenweg-Schlüssel), nicht auf einem Telefon getestet | Tunnel baut |
+| Anmeldung (einmal, 30 Tage) | localhost | localhost | localhost | Schema (rosenweg_basis) | localhost im In-App-Browser |
+| DNS-Server für „im Haus“ | resolv.conf | PowerShell/ipconfig | resolv.conf/scutil | LinkProperties (rosenweg_basis) | keine (immer „Unterwegs“) |
+| Stand | **.deb gebaut** (CT 141, 26.11.2026), Start unter Xvfb bis zur Anmeldung | **Installer gebaut** (CI windows-latest, 26.11.2026), Ladetest + Start im Runner, nicht an echter VM getestet | **DMG gebaut** (arm64, ab macOS 26, ad hoc) | **APK gebaut** (arm64-v8a, x86_64; Stapel in CI, APK lokal mit Rosenweg-Schlüssel), nicht auf einem Telefon getestet | **App gebaut ohne Signatur** (lokal; Stapel in CI), nicht auf einem Gerät |
 
 ## Linux (zuerst, Stationen; Debian 13)
 
@@ -264,22 +264,55 @@ Telefon ausprobiert.
 - **Offen:** Test auf Telefon und Tablet (Touch: Tippen = Klick, Bildschirm-
   tastatur, Zoom), Mikrofon-Erlaubnis, USB, geteilte Telefone.
 
-## iOS / iPadOS (zuletzt)
+## iOS / iPadOS
 
-- **SPICE:** Vorbild **UTM** (Apache-2.0): baut GLib, spice-gtk (spice-glib),
-  usbredir, libusb, OpenSSL für iOS und macOS mit eigenen Skripten
-  (`scripts/build_dependencies.sh`). LGPL auf iOS: als dynamische Frameworks
-  einbetten, damit sie austauschbar bleiben.
-- **Ton:** CoreAudio über miniaudio; `AVAudioSession` Kategorie playAndRecord
-  nur, wenn das Mikrofon an ist. Erlaubnis `NSMicrophoneUsageDescription`
-  (eingetragen).
-- **USB:** **geht nicht.** iOS gibt Apps keinen Zugriff auf beliebige
-  USB-Geräte (nur MFi-Zubehör über ExternalAccessory; DriverKit auf iPadOS
-  braucht Apple-Berechtigungen und ist für diesen Zweck nicht vorgesehen).
-  Die USB-Taste wird dort ausgeblendet.
-- **Tunnel:** ✓ `librwtunnel.a` gebaut. Läuft im Vordergrund ohne Network
-  Extension; geht die App in den Hintergrund, endet die Sitzung ohnehin.
-- **Aufwand:** 8–12 PT (mit UTM-Skripten als Vorlage), dazu Apple-Verteilung.
+Stand 26.11.2026: `flutter build ios --release --no-codesign` baut lokal mit
+beiden Frameworks im Bündel (`Runner.app/Frameworks/{SpiceGlib,RwNative}.framework`);
+CI-Workflow `.github/workflows/ios.yml`. **Ohne Apple Developer Program nur
+unsigniert** — auf keinem Gerät installierbar, nicht getestet.
+
+- **SPICE – Entscheid wie Android:** dieselbe C-Schicht über spice-glib.
+  UTM (Apache-2.0) baut den ganzen Stapel selbst (Stunden); statt dessen das
+  **offizielle GStreamer-Binärpaket für iOS** (1.28.9, feste Prüfsumme). Es
+  enthält eine einzige zusammengefügte statische Bibliothek (arm64 +
+  x86_64-Simulator) und flache Kopfdateien, aber keine `.pc`-Dateien:
+  `native/spice-stapel/ios.sh` löst arm64 heraus, schreibt `.pc`-Dateien für
+  die Module, die spice-glib verlangt (Versionen aus den Kopfdateien), baut
+  spice-protocol und spice-gtk 0.43 (nur spice-glib, **ohne USB**, ohne phodav,
+  GThread-Koroutinen; `drm_fourcc.h` als Ein-Zeilen-Ersatz) und linkt daraus
+  **`SpiceGlib.framework`** (dynamisch, austauschbar, ~17 MB): spice-glib ganz,
+  aus dem GStreamer-Archiv nur, was gebraucht wird, dazu jedes GLib-Symbol,
+  das rwspice selbst ruft (aus `rwspice.c` ermittelt).
+- **Tunnel – Entscheid: keine Network Extension.** rwtunnel (Go c-archive)
+  liegt mit rwspice (als Objective-C übersetzt, weil miniaudio dort
+  AVAudioSession braucht) in **`RwNative.framework`**
+  (`native/rwspice/bauen.sh ios`). WireGuard läuft wie überall im Prozess;
+  eine NetworkExtension bräuchte das Developer Program, ein eigenes
+  App-Extension-Ziel und eine Berechtigung, und brächte nichts: geht die App
+  in den Hintergrund, endet die Sitzung ohnehin.
+- **Einbinden:** beide Frameworks stehen im Xcode-Projekt in der Phase „Embed
+  Frameworks“ (Pfad `../build/ios-native/`, also vor `flutter build ios`
+  bauen); die App lädt `RwNative.framework` mit `DynamicLibrary.open`
+  (`lib/native/bibliothek.dart`), das zieht SpiceGlib über `@rpath` nach.
+- **Anmeldung:** localhost-Rücksprung wie auf dem Desktop (Anmeldeweg der
+  Basis), aber die Seite öffnet im **Browserfenster der App**
+  (SFSafariViewController, `LaunchMode.inAppBrowserView`): die App bleibt im
+  Vordergrund, ihr Port nimmt den Rücksprung an; danach schliesst sie das
+  Fenster. Kein neuer Eintrag in Authentik nötig. (Safari ausserhalb ginge
+  nicht: die App wäre angehalten.) Die Authentik-Sitzung aus Safari kennt das
+  Fenster nicht; die Person meldet sich einmal an, danach 30 Tage still.
+- **Netz:** `NSLocalNetworkUsageDescription` eingetragen (LAN-Endpunkt im
+  Haus). Die DNS-Server liest die App auf iOS noch nicht, darum immer
+  „Unterwegs“ (sicher, nur der längere Weg).
+- **Ton:** CoreAudio über miniaudio; Mikrofon-Erlaubnis
+  `NSMicrophoneUsageDescription` (eingetragen).
+- **USB:** **geht nicht** (iOS gibt Apps keinen Zugriff auf beliebige
+  USB-Geräte); spice-glib ohne usbredir, die Liste bleibt leer.
+- **Was es für Geräte braucht:** Apple Developer Program (99 USD/Jahr), daraus
+  Zertifikat + Provisioning Profile (Ad hoc mit Geräte-UDIDs, TestFlight oder
+  App Store). Vor App Store: GPL-Frage klären (LIZENZEN.md).
+- **Offen:** Test auf iPhone/iPad, DNS für „im Haus“ (`res_9_getservers`),
+  Simulator-Bau (dafür bräuchte es die x86_64/arm64-sim-Teile als xcframework).
 
 ## Ordner freigeben (SPICE WebDAV)
 

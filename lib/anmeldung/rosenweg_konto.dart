@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
 import 'package:crypto/crypto.dart';
-import 'package:rosenweg_basis/rosenweg_basis.dart' show Anmeldeweg, AnmeldungAbgebrochen;
+import 'package:rosenweg_basis/rosenweg_basis.dart' show Anmeldeweg, AnmeldungAbgebrochen, LocalhostAnmeldeweg;
+import 'package:url_launcher/url_launcher.dart';
 
 import '../konfig.dart';
 import '../netz/json_anfrage.dart';
@@ -69,7 +71,14 @@ class RosenwegKonto {
     final challenge = base64UrlEncode(sha256.convert(ascii.encode(verifier)).bytes).replaceAll('=', '');
     // Desktop: localhost-Port; Android: Schema ch.rosenweg4303.vm:/anmeldung
     // ueber die Ruecksprung-Activity von rosenweg_basis (wie alle Rosenweg-Apps).
-    final rueck = await Anmeldeweg.fuer(Konfig.telefonRuecksprung).vorbereiten();
+    //
+    // iOS: auch localhost, aber die Seite im Browserfenster der App
+    // (SFSafariViewController). Sie bleibt dabei im Vordergrund, darum nimmt
+    // ihr Port den Ruecksprung an; im externen Safari waere sie angehalten.
+    final weg = Platform.isIOS
+        ? LocalhostAnmeldeweg(oeffnen: (u) => launchUrl(u, mode: LaunchMode.inAppBrowserView))
+        : Anmeldeweg.fuer(Konfig.telefonRuecksprung);
+    final rueck = await weg.vorbereiten();
     final url = Uri.parse('${Konfig.authentik}/authorize/').replace(queryParameters: {
       'response_type': 'code',
       'client_id': Konfig.clientId,
@@ -84,6 +93,8 @@ class RosenwegKonto {
       antwort = await rueck.warten(url);
     } on AnmeldungAbgebrochen {
       throw AnmeldeFehler('Anmeldung abgebrochen');
+    } finally {
+      if (Platform.isIOS) unawaited(closeInAppWebView());
     }
     final q = antwort.queryParameters;
     if (q['error'] != null || q['code'] == null) throw AnmeldeFehler('Anmeldung abgebrochen');

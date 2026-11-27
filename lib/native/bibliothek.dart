@@ -10,10 +10,14 @@ import 'dart:io';
 ///  2. Entwicklungsordner aus --dart-define=RW_NATIVE_DIR=…/native,
 ///  3. Suchpfad des Systems.
 ///
-/// iOS linkt statisch (Go c-archive, spice-glib als Framework); dort genuegt
-/// DynamicLibrary.process().
+/// iOS: rwspice und rwtunnel liegen zusammen in RwNative.framework (Go als
+/// c-archive hineingelinkt), spice-glib in SpiceGlib.framework; beide bettet
+/// Xcode in Runner.app/Frameworks ein (native/rwspice/bauen.sh ios).
 DynamicLibrary bibliothekLaden(String name) {
-  if (Platform.isIOS) return DynamicLibrary.process();
+  if (Platform.isIOS) {
+    final app = File(Platform.resolvedExecutable).parent.path;
+    return DynamicLibrary.open('$app/Frameworks/RwNative.framework/RwNative');
+  }
 
   final datei = switch (Platform.operatingSystem) {
     'macos' => 'lib$name.dylib',
