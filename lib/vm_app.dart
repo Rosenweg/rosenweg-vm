@@ -15,6 +15,8 @@ const vmApp = RosenwegApp(
   beschreibung: 'Die eigenen virtuellen Computer im Haus öffnen – im Haus und unterwegs.',
   quelle: 'https://github.com/Rosenweg/rosenweg-vm',
   logo: AssetImage('assets/logo/rosenweg-vm-512.png'),
+  // Anmeldeschirm in der Gruppenfarbe (rosenweg_basis 0.6.1), wie das Logo
+  gruppe: RosenwegGruppe.bewohner,
 );
 
 /// EIN Schluesselbund-Eintrag fuer alles (Anmeldung, Karten-Sitzung,
