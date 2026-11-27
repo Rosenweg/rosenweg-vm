@@ -715,6 +715,11 @@ void rw_spice_usb_schalten(const char *id, int32_t an) {
 int32_t rw_spice_ordner_moeglich(void) {
     /* spice-glib bringt den WebDAV-Server nur mit, wenn es mit phodav gebaut
      * ist; ohne bleibt der Kanal stumm. */
+#ifdef RW_MIT_PHODAV
+    /* Android: phodav steckt statisch in libspiceglib.so, seine Symbole sind
+     * dort nicht sichtbar; der Bau weiss es (native/rwspice/bauen.sh). */
+    return 1;
+#endif
 #ifdef _WIN32
     /* kein RTLD_DEFAULT: alle geladenen Module des Prozesses fragen */
     HMODULE module[512];

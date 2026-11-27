@@ -61,9 +61,12 @@ android)
     # shellcheck disable=SC1090
     . "$umg"
     mkdir -p "build/android/$abi"
+    # phodav ist statisch in libspiceglib.so (Symbole verborgen): dem Code sagen
+    phodav=()
+    "$PKGCFG" --exists libphodav-3.0 && phodav=(-DRW_MIT_PHODAV=1)
     # spice-glib und GLib kommen aus libspiceglib.so (eigene .so, austauschbar)
     "$CC" -O2 -fPIC -shared -fvisibility=hidden "${WARN[@]}" \
-        $("$PKGCFG" --cflags spice-client-glib-2.0) \
+        $("$PKGCFG" --cflags spice-client-glib-2.0) "${phodav[@]}" \
         "${QUELLEN[@]}" \
         -L"$SPICEGLIB_DIR" -lspiceglib -llog -lm -ldl $LDSEITEN -Wl,--no-undefined \
         -Wl,-soname,librwspice.so -o "build/android/$abi/librwspice.so"
