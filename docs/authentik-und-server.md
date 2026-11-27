@@ -19,6 +19,15 @@ commons-rosenweg und Rosenweg Telefon) → Anbieter:
   `authentik` entsprechen (`joerg.herrmann` ↔ `joerg.herrmann@authentik`).
   Sonst im Gateway `PVE_BENUTZER_CLAIM` anpassen.
 
+**Stille Anmeldung (Kerberos)** an Stationen und Windows-Rechnern der Domäne
+(`RosenwegKonto.stillAnmelden`, siehe rosenweg-basis `docs/authentik.md`):
+- Kerberos-Quelle `ad-kerberos` (SPN `HTTP/authentik.rosenweg4303.ch@AD.ROSENWEG4303.CH`),
+  Benutzerzuordnung AD-Konto = Authentik-Benutzer — für die Stationen schon da.
+- `rosenweg-apps` mit **impliziter** Zustimmung, sonst fragt Authentik nach
+  Zustimmung und die App fällt auf den Browser zurück
+  (Website-Repo `scripts/authentik-apps-sso.sh`).
+- Ruecksprung `http://localhost:0/anmeldung` passt auf die Regex oben.
+
 Der Anbieter „Proxmox VE“ braucht für die App **nichts Neues** mehr: es gibt
 keine Proxmox-Anmeldung im Browser.
 
