@@ -7,6 +7,7 @@ import 'dart:io';
 import 'package:ffi/ffi.dart';
 
 import '../protokoll.dart';
+import '../spice/spice_ziel.dart';
 import 'bibliothek.dart';
 
 /// Kanalarten aus rwspice.h (RW_K_*): was der Computer anbietet.
@@ -43,7 +44,10 @@ enum SpiceEreignisArt {
   kanal(11),
 
   /// Ordnerfreigabe: a = 1 aktiv, b = 1 Fehler.
-  ordner(12);
+  ordner(12),
+
+  /// Gast hat Text in die Zwischenablage gelegt (holen: [RwSpice.zwischenablageHolen]).
+  zwischenablage(13);
 
   const SpiceEreignisArt(this.code);
   final int code;
@@ -77,7 +81,7 @@ class UsbGeraet {
 typedef _EreignisC = Void Function(Int32, Int32, Int32, Int32, Int32);
 
 /// Bindung an librwspice. Eine Sitzung zur Zeit (siehe rwspice.h).
-class RwSpice {
+class RwSpice implements SpiceZiel {
   RwSpice._(DynamicLibrary lib)
       : _start = lib.lookupFunction<Void Function(Int32, Pointer<NativeFunction<_EreignisC>>),
             void Function(int, Pointer<NativeFunction<_EreignisC>>)>('rw_spice_start'),
@@ -85,19 +89,22 @@ class RwSpice {
             Int32 Function(Pointer<Utf8>, Int32, Int32, Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>),
             int Function(Pointer<Utf8>, int, int, Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>)>('rw_spice_verbinden'),
         trennen = lib.lookupFunction<Void Function(), void Function()>('rw_spice_trennen'),
-        bildAbholen = lib.lookupFunction<Int32 Function(Pointer<Uint8>, Int32, Pointer<Int32>, Pointer<Int32>),
+        _bildAbholen = lib.lookupFunction<Int32 Function(Pointer<Uint8>, Int32, Pointer<Int32>, Pointer<Int32>),
             int Function(Pointer<Uint8>, int, Pointer<Int32>, Pointer<Int32>)>('rw_spice_bild_abholen'),
-        mausPosition = lib.lookupFunction<Void Function(Int32, Int32, Int32), void Function(int, int, int)>('rw_spice_maus_position'),
-        mausBewegung = lib.lookupFunction<Void Function(Int32, Int32, Int32), void Function(int, int, int)>('rw_spice_maus_bewegung'),
-        mausTaste = lib.lookupFunction<Void Function(Int32, Int32, Int32), void Function(int, int, int)>('rw_spice_maus_taste'),
-        taste = lib.lookupFunction<Void Function(Int32, Int32), void Function(int, int)>('rw_spice_taste'),
-        feststellAus = lib.lookupFunction<Void Function(), void Function()>('rw_spice_feststell_aus'),
-        bildschirmGroesse = lib.lookupFunction<Void Function(Int32, Int32), void Function(int, int)>('rw_spice_bildschirm_groesse'),
+        _mausPosition = lib.lookupFunction<Void Function(Int32, Int32, Int32), void Function(int, int, int)>('rw_spice_maus_position'),
+        _mausBewegung = lib.lookupFunction<Void Function(Int32, Int32, Int32), void Function(int, int, int)>('rw_spice_maus_bewegung'),
+        _mausTaste = lib.lookupFunction<Void Function(Int32, Int32, Int32), void Function(int, int, int)>('rw_spice_maus_taste'),
+        _taste = lib.lookupFunction<Void Function(Int32, Int32), void Function(int, int)>('rw_spice_taste'),
+        _feststellAus = lib.lookupFunction<Void Function(), void Function()>('rw_spice_feststell_aus'),
+        _bildschirmGroesse = lib.lookupFunction<Void Function(Int32, Int32), void Function(int, int)>('rw_spice_bildschirm_groesse'),
         _ton = lib.lookupFunction<Void Function(Int32, Int32), void Function(int, int)>('rw_spice_ton'),
         _usbListe = lib.lookupFunction<Pointer<Utf8> Function(), Pointer<Utf8> Function()>('rw_spice_usb_liste'),
         _usbSchalten = lib.lookupFunction<Void Function(Pointer<Utf8>, Int32), void Function(Pointer<Utf8>, int)>('rw_spice_usb_schalten'),
         _ordner = lib.lookupFunction<Void Function(Pointer<Utf8>, Int32), void Function(Pointer<Utf8>, int)>('rw_spice_ordner'),
         ordnerMoeglich = lib.lookupFunction<Int32 Function(), int Function()>('rw_spice_ordner_moeglich')() == 1,
+        _zwAn = lib.lookupFunction<Void Function(Int32), void Function(int)>('rw_spice_zwischenablage_an'),
+        _zwSetzen = lib.lookupFunction<Void Function(Pointer<Utf8>), void Function(Pointer<Utf8>)>('rw_spice_zwischenablage_setzen'),
+        _zwHolen = lib.lookupFunction<Pointer<Utf8> Function(), Pointer<Utf8> Function()>('rw_spice_zwischenablage_holen'),
         _fehler = lib.lookupFunction<Pointer<Utf8> Function(), Pointer<Utf8> Function()>('rw_spice_letzter_fehler'),
         _frei = lib.lookupFunction<Void Function(Pointer<Utf8>), void Function(Pointer<Utf8>)>('rw_spice_frei') {
     // listener: das Ereignis kommt aus dem GLib-Thread und wird hier im
@@ -131,12 +138,55 @@ class RwSpice {
   final void Function(int, Pointer<NativeFunction<_EreignisC>>) _start;
   final int Function(Pointer<Utf8>, int, int, Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>) _verbinden;
   final void Function() trennen;
-  final int Function(Pointer<Uint8>, int, Pointer<Int32>, Pointer<Int32>) bildAbholen;
-  final void Function(int, int, int) mausPosition, mausBewegung, mausTaste;
-  final void Function(int, int) taste, bildschirmGroesse, _ton;
-  final void Function() feststellAus;
+  final int Function(Pointer<Uint8>, int, Pointer<Int32>, Pointer<Int32>) _bildAbholen;
+  final void Function(int, int, int) _mausPosition, _mausBewegung, _mausTaste;
+  final void Function(int, int) _taste, _bildschirmGroesse, _ton;
+  final void Function() _feststellAus;
+
+  @override
+  int bildAbholen(Pointer<Uint8> ziel, int bytes, Pointer<Int32> breite, Pointer<Int32> hoehe) =>
+      _bildAbholen(ziel, bytes, breite, hoehe);
+  @override
+  void mausPosition(int x, int y, int tasten) => _mausPosition(x, y, tasten);
+  @override
+  void mausBewegung(int dx, int dy, int tasten) => _mausBewegung(dx, dy, tasten);
+  @override
+  void mausTaste(int taste, int gedrueckt, int tasten) => _mausTaste(taste, gedrueckt, tasten);
+  @override
+  void taste(int scancode, int gedrueckt) => _taste(scancode, gedrueckt);
+  @override
+  void feststellAus() => _feststellAus();
+  @override
+  void bildschirmGroesse(int breite, int hoehe) => _bildschirmGroesse(breite, hoehe);
   final Pointer<Utf8> Function() _usbListe, _fehler;
   final void Function(Pointer<Utf8>, int) _usbSchalten, _ordner;
+
+  final void Function(int) _zwAn;
+  final void Function(Pointer<Utf8>) _zwSetzen;
+  final Pointer<Utf8> Function() _zwHolen;
+
+  /// Zwischenablage mit dem Gast teilen (beide Richtungen) oder nicht.
+  void zwischenablageAn(bool an) => _zwAn(an ? 1 : 0);
+
+  /// Text vom Geraet dem Gast anbieten.
+  void zwischenablageSetzen(String text) {
+    final p = text.toNativeUtf8();
+    try {
+      _zwSetzen(p);
+    } finally {
+      malloc.free(p);
+    }
+  }
+
+  /// Zuletzt vom Gast gekommener Text.
+  String zwischenablageHolen() {
+    final p = _zwHolen();
+    try {
+      return p.toDartString();
+    } finally {
+      _frei(p);
+    }
+  }
 
   /// spice-glib mit WebDAV-Server (phodav) gebaut?
   final bool ordnerMoeglich;
@@ -154,6 +204,7 @@ class RwSpice {
   late final NativeCallable<_EreignisC> _cb;
   final _ereignisse = StreamController<SpiceEreignis>.broadcast();
 
+  @override
   Stream<SpiceEreignis> get ereignisse => _ereignisse.stream;
 
   /// Verbindet mit den Angaben aus spiceproxy (siehe Gateway.spice()).

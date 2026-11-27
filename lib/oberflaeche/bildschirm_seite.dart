@@ -4,19 +4,25 @@ import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:rosenweg_basis/rosenweg_basis.dart' show FehlerDetails, Fensterklasse;
 
 import '../app_zustand.dart';
 import '../native/rwspice.dart';
 import '../protokoll.dart';
 import '../gateway/gateway.dart';
+import '../spice/bedien_einstellung.dart';
 import '../spice/bildschirm.dart';
 import '../spice/belegungen.dart';
 import '../spice/scancodes.dart';
 import '../spice/tastatur_einstellung.dart';
+import '../spice/zwischenablage.dart';
+import 'sondertasten_leiste.dart';
 
 /// Der Bildschirm eines Computers. Oben eine schmale Leiste mit dem Noetigsten:
-/// Ton, Mikrofon, USB, Strg+Alt+Entf. Alles andere gehoert in den Gast.
+/// Tastatur (immer sichtbar, oeffnet Bildschirmtastatur und Sondertasten),
+/// Ton, Mikrofon, USB, Ordner, Einstellungen, Strg+Alt+Entf. Alles andere
+/// gehoert in den Gast.
 class BildschirmSeite extends StatefulWidget {
   const BildschirmSeite({super.key, required this.computer, required this.zustand});
   final Computer computer;
@@ -28,8 +34,16 @@ class BildschirmSeite extends StatefulWidget {
 
 enum _Stand { verbinden, verbunden, getrennt }
 
-class _BildschirmSeiteState extends State<BildschirmSeite> {
+class _BildschirmSeiteState extends State<BildschirmSeite> with WidgetsBindingObserver {
   final _spice = RwSpice.i;
+  final _steuerung = BildschirmSteuerung();
+
+  /// Bildschirmtastatur war schon sichtbar (fuer "System hat sie geschlossen").
+  bool _imeSichtbar = false;
+
+  late final _ablage = ZwischenablageAbgleich(anGast: _spice.zwischenablageSetzen);
+  Timer? _ablageTakt;
+  static const _ordnerKanal = MethodChannel('rosenweg_vm/ordner');
   StreamSubscription<SpiceEreignis>? _abo;
   _Stand _stand = _Stand.verbinden;
   String? _meldung;
@@ -78,8 +92,18 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _abo = _spice.ereignisse.listen(_ereignis);
     TastaturEinstellung.i.laden();
+    BedienEinstellung.i.laden().then((_) => _ablageSchalten());
+    BedienEinstellung.i.addListener(_ablageSchalten);
+    // Am Rechner merkt die App so, wenn dort etwas kopiert wurde. Auf dem
+    // Handy nur beim Verbinden und Zurueckkommen (jedes Lesen wird gemeldet).
+    if (!(Platform.isAndroid || Platform.isIOS)) {
+      _ablageTakt = Timer.periodic(const Duration(seconds: 2), (_) {
+        if (_stand == _Stand.verbunden) _ablage.geraetPruefen();
+      });
+    }
     _verbinden();
   }
 
@@ -94,6 +118,7 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
       _kanaeleBekannt = false;
       _ordner = null; // neue Sitzung: Freigabe ist weg
     });
+    _ablage.vergessen();
     try {
       if (AppZustand.testSpice.isNotEmpty) {
         final teile = AppZustand.testSpice.split(':');
@@ -129,6 +154,10 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
   void _ereignis(SpiceEreignis e) {
     if (!mounted) return;
     switch (e.art) {
+      case SpiceEreignisArt.zwischenablage:
+        _ablage.gastHat(_spice.zwischenablageHolen());
+      case SpiceEreignisArt.agent:
+        if (e.a == 1) _ablage.geraetPruefen();
       case SpiceEreignisArt.ordner:
         if (e.b == 1) {
           final t = _spice.letzterFehler();
@@ -143,6 +172,7 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
       case SpiceEreignisArt.bildGroesse:
         if (e.art == SpiceEreignisArt.bildGroesse) {
           _kanaeleFestlegen();
+          _ersteHilfe();
         } else {
           _kanalWarten ??= Timer(const Duration(seconds: 3), _kanaeleFestlegen);
         }
@@ -179,6 +209,54 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
     }
   }
 
+  void _ablageSchalten() {
+    final an = BedienEinstellung.i.zwischenablage;
+    if (_ablage.an == an) return;
+    _ablage.an = an;
+    _spice.zwischenablageAn(an);
+    if (an) _ablage.geraetPruefen();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState s) {
+    if (s == AppLifecycleState.resumed && _stand == _Stand.verbunden) _ablage.geraetPruefen();
+  }
+
+  /// Schliesst die Person die Bildschirmtastatur selbst (Zurueck-Taste,
+  /// Pfeil nach unten), geht auch die Sondertasten-Leiste zu.
+  @override
+  void didChangeMetrics() {
+    if (!mounted) return;
+    final unten = View.of(context).viewInsets.bottom;
+    if (unten > 0) {
+      _imeSichtbar = true;
+    } else if (_imeSichtbar) {
+      _imeSichtbar = false;
+      if (_steuerung.tastaturOffen && (Platform.isAndroid || Platform.isIOS)) _steuerung.tastatur(false);
+    }
+  }
+
+  /// Blatt von unten: scrollbar, nie unter der Navigationsleiste, danach
+  /// Tastaturfokus zurueck aufs Bild.
+  Future<void> _blatt(WidgetBuilder inhalt) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      useSafeArea: true,
+      constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.85),
+      builder: (context) => SafeArea(top: false, child: inhalt(context)),
+    );
+    _steuerung.fokus();
+  }
+
+  /// Platz fuer das Bild ohne Bildschirmtastatur und Leiste: Fenster minus
+  /// Systemleisten minus Kopfleiste (44).
+  Size _bildFlaeche(BuildContext context) {
+    final mq = MediaQuery.of(context);
+    return Size(mq.size.width - mq.padding.horizontal, mq.size.height - mq.padding.vertical - 44);
+  }
+
   void _tonSetzen() => _spice.ton(wiedergabe: _ton, mikrofon: _mikrofon);
 
   Future<void> _usbMenue() async {
@@ -186,9 +264,7 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
     for (final g in liste.where((g) => g.macTreiber.isNotEmpty)) {
       Protokoll.schreiben('USB ${g.id} (${g.name}) nicht angeboten: ${g.macTreiber} (macOS-Treiber)');
     }
-    await showModalBottomSheet<void>(
-      context: context,
-      builder: (context) => StatefulBuilder(builder: (context, neu) {
+    await _blatt((context) => StatefulBuilder(builder: (context, neu) {
         final aktuell = _spice.usbListe();
         return ListView(shrinkWrap: true, children: [
           const ListTile(title: Text('USB-Geräte an diesen Computer weitergeben')),
@@ -211,22 +287,20 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
                   : null,
             ),
         ]);
-      }),
-    );
+      }));
   }
 
   /// Ordner (oder Stick unter /Volumes) per SPICE-WebDAV an den Gast geben.
   Future<void> _ordnerMenue() async {
     if (!_spice.ordnerMoeglich) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Ordner freigeben geht mit diesem App-Bau noch nicht (spice-glib ohne WebDAV/phodav).')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(Platform.isIOS
+              ? 'Ordner freigeben geht auf iPhone und iPad noch nicht: der App-Bau für iOS hat keinen WebDAV-Server (phodav).'
+              : 'Ordner freigeben geht mit diesem App-Bau nicht (spice-glib ohne WebDAV/phodav).')));
       return;
     }
     if (_fehlt(SpiceKanal.ordner)) return _hinweis(SpiceKanal.ordner);
-    await showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => StatefulBuilder(
+    await _blatt((context) => StatefulBuilder(
         builder: (context, neu) => ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(16, 0, 16, 16), children: [
           Text('Ordner freigeben', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
@@ -242,10 +316,12 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
               icon: const Icon(Icons.folder_open),
               label: Text(_ordner == null ? 'Ordner wählen …' : 'Anderen Ordner …'),
               onPressed: () async {
-                final pfad = await getDirectoryPath(
-                  confirmButtonText: 'Freigeben',
-                  initialDirectory: Platform.isMacOS ? '/Volumes' : null,
-                );
+                final pfad = Platform.isAndroid
+                    ? await _androidOrdner(context)
+                    : await getDirectoryPath(
+                        confirmButtonText: 'Freigeben',
+                        initialDirectory: Platform.isMacOS ? '/Volumes' : null,
+                      );
                 if (pfad == null) return;
                 _spice.ordner(pfad, nurLesen: _ordnerNurLesen);
                 Protokoll.schreiben('Ordner freigeben: $pfad${_ordnerNurLesen ? ' (nur lesen)' : ''}');
@@ -273,18 +349,100 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ]),
+      ));
+  }
+
+  /// Telefon/Tablet: beim ersten Bild einmal kurz die Gesten zeigen.
+  void _ersteHilfe() {
+    if (!(Platform.isAndroid || Platform.isIOS) || BedienEinstellung.i.hilfeGesehen || _hilfeOffen) return;
+    _hilfeOffen = true;
+    Future<void>.delayed(const Duration(milliseconds: 600), () async {
+      if (!mounted) return;
+      await _gestenHilfe();
+      await BedienEinstellung.i.setzen(hilfeGesehen: true);
+    });
+  }
+
+  bool _hilfeOffen = false;
+
+  Future<void> _gestenHilfe() async {
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Bedienung mit dem Finger'),
+        content: const SingleChildScrollView(child: GestenHilfe()),
+        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Verstanden'))],
+      ),
+    );
+    _steuerung.fokus();
+  }
+
+  /// Android: phodav braucht einen echten Pfad, darum "Zugriff auf alle
+  /// Dateien" (einmal in den Einstellungen) und dann ein Ordner des Speichers.
+  Future<String?> _androidOrdner(BuildContext context) async {
+    var erlaubt = await _ordnerKanal.invokeMethod<bool>('erlaubt') ?? false;
+    if (!erlaubt && context.mounted) {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Zugriff auf Dateien'),
+          content: const Text('Damit der Computer einen Ordner dieses Telefons sieht, braucht die App '
+              '„Zugriff auf alle Dateien“. Android öffnet dafür die Einstellungen; dort den Schalter '
+              'einschalten und zurückkommen.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Abbrechen')),
+            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Einstellungen öffnen')),
+          ],
+        ),
+      );
+      if (ok != true) return null;
+      await _ordnerKanal.invokeMethod<void>('erlauben');
+      // Warten, bis die Person aus den Einstellungen zurueck ist
+      for (var i = 0; i < 120 && !erlaubt; i++) {
+        await Future<void>.delayed(const Duration(seconds: 1));
+        if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
+          erlaubt = await _ordnerKanal.invokeMethod<bool>('erlaubt') ?? false;
+          if (!erlaubt && i > 2) break;
+        }
+      }
+      if (!erlaubt) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Ohne „Zugriff auf alle Dateien“ geht Ordner freigeben nicht.')));
+        }
+        return null;
+      }
+    }
+    final wurzel = await _ordnerKanal.invokeMethod<String>('speicher') ?? '/storage/emulated/0';
+    if (!context.mounted) return null;
+    return showDialog<String>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('Welcher Ordner?'),
+        children: [
+          for (final (name, unter, icon) in const [
+            ('Downloads', 'Download', Icons.download),
+            ('Dokumente', 'Documents', Icons.description),
+            ('Bilder', 'Pictures', Icons.image),
+            ('Kamera', 'DCIM', Icons.photo_camera),
+            ('Ganzer Speicher', '', Icons.sd_storage),
+          ])
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(context, unter.isEmpty ? wurzel : '$wurzel/$unter'),
+              child: ListTile(leading: Icon(icon), title: Text(name)),
+            ),
+        ],
       ),
     );
   }
 
-  /// Tastatur: Modus, Gastbelegung (mit Suche), Cmd als Strg, Mac-ISO.
+  /// Einstellungen: Tastatur (Modus, Gastbelegung mit Suche, Cmd als Strg,
+  /// Mac-ISO) und Beruehrung (direkt / Touchpad, Hilfe).
   Future<void> _tastaturMenue() async {
     final t = TastaturEinstellung.i;
-    await showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => ListenableBuilder(
-        listenable: t,
+    final bed = BedienEinstellung.i;
+    await _blatt((context) => ListenableBuilder(
+        listenable: Listenable.merge([t, bed]),
         builder: (context, _) => ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(16, 0, 16, 16), children: [
           Text('Tastatur', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 12),
@@ -330,9 +488,54 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
                 onChanged: (v) => t.setzen(macIsoTausch: v),
               ),
           ],
+          SwitchListTile(
+            key: const ValueKey('zwischenablage'),
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Zwischenablage teilen'),
+            subtitle: const Text('Kopierter Text geht zwischen diesem Gerät und dem Computer hin und her '
+                '(braucht im Computer den SPICE-Agent).'),
+            value: bed.zwischenablage,
+            onChanged: (v) => bed.setzen(zwischenablage: v),
+          ),
+          SwitchListTile(
+            key: const ValueKey('aufloesung-anpassen'),
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Auflösung anpassen'),
+            subtitle: const Text('Der Computer nimmt Grösse und Ausrichtung dieses Bildschirms an '
+                '(braucht im Computer den SPICE-Agent; ohne ihn wird das Bild nur eingepasst).'),
+            value: bed.aufloesungAnpassen,
+            onChanged: (v) => bed.setzen(aufloesungAnpassen: v),
+          ),
+          const Divider(height: 24),
+          Text('Berührung', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 12),
+          SegmentedButton<TouchModus>(
+            key: const ValueKey('touch-modus'),
+            segments: const [
+              ButtonSegment(value: TouchModus.direkt, icon: Icon(Icons.touch_app), label: Text('Direkt')),
+              ButtonSegment(value: TouchModus.touchpad, icon: Icon(Icons.mouse), label: Text('Touchpad')),
+            ],
+            selected: {bed.touch},
+            onSelectionChanged: (m) => bed.setzen(touch: m.first),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            bed.touch == TouchModus.direkt
+                ? 'Tippen klickt genau dort, wo der Finger ist.'
+                : 'Der Finger schiebt den Mauszeiger, Tippen klickt dort, wo der Zeiger steht.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.help_outline),
+            title: const Text('Gesten anzeigen'),
+            onTap: () {
+              Navigator.pop(context);
+              _gestenHilfe();
+            },
+          ),
         ]),
-      ),
-    );
+      ));
   }
 
   Future<GastBelegung?> _belegungWaehlen(GastBelegung aktuell) => showDialog<GastBelegung>(
@@ -373,14 +576,7 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
         },
       );
 
-  void _strgAltEntf() {
-    for (final sc in strgAltEntf) {
-      _spice.taste(sc, 1);
-    }
-    for (final sc in strgAltEntf.reversed) {
-      _spice.taste(sc, 0);
-    }
-  }
+  void _strgAltEntf() => _steuerung.kombination(strgAltEntf);
 
   @override
   Widget build(BuildContext context) {
@@ -389,7 +585,19 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
         toolbarHeight: 44,
         // Name des Computers ganz (Tooltip), auch wenn er schmal gekuerzt wird.
         title: Tooltip(message: widget.computer.name, child: Text(widget.computer.name)),
-        actions: _schmalOderBreit(context, [
+        actions: _schmalOderBreit(context, immer: [
+          ListenableBuilder(
+            listenable: _steuerung,
+            builder: (context, _) => IconButton(
+              key: const ValueKey('tastatur-knopf'),
+              tooltip: _steuerung.tastaturOffen ? 'Tastatur schliessen' : 'Tastatur',
+              isSelected: _steuerung.tastaturOffen,
+              icon: const Icon(Icons.keyboard),
+              selectedIcon: const Icon(Icons.keyboard_hide),
+              onPressed: () => _steuerung.tastatur(!_steuerung.tastaturOffen),
+            ),
+          ),
+        ], [
           // Fehlt ein Kanal, bleibt der Knopf sichtbar, aber grau; ein Druck
           // sagt warum (statt still nichts zu tun).
           if (_fehlt(SpiceKanal.wiedergabe))
@@ -437,13 +645,16 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
                 color: !_spice.ordnerMoeglich || _fehlt(SpiceKanal.ordner) ? Theme.of(context).disabledColor : null),
             onPressed: _ordnerMenue,
           ),
-          IconButton(tooltip: 'Tastatur', icon: const Icon(Icons.keyboard_alt_outlined), onPressed: _tastaturMenue),
-          IconButton(tooltip: 'Strg+Alt+Entf senden', icon: const Icon(Icons.keyboard), onPressed: _strgAltEntf),
+          IconButton(tooltip: 'Einstellungen', icon: const Icon(Icons.tune), onPressed: _tastaturMenue),
+          IconButton(tooltip: 'Strg+Alt+Entf senden', icon: const Icon(Icons.key), onPressed: _strgAltEntf),
         ]),
       ),
-      body: Stack(children: [
+      body: Column(children: [
+        Expanded(child: Stack(children: [
         Positioned.fill(
           child: SpiceBildschirm(
+            steuerung: _steuerung,
+            flaeche: _bildFlaeche(context),
             hinweis: (t) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(t))),
           ),
         ),
@@ -472,6 +683,12 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
               ),
             ),
           ),
+        ])),
+        ListenableBuilder(
+          listenable: _steuerung,
+          builder: (context, _) =>
+              _steuerung.tastaturOffen ? SondertastenLeiste(steuerung: _steuerung) : const SizedBox.shrink(),
+        ),
       ]),
     );
   }
@@ -479,13 +696,18 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
   /// Schmal (unter 600 px) passen die sieben Knoepfe nicht neben den Namen
   /// (Test win11-1 bei 400 px: „dis…“). Dann stehen sie mit Text in einem
   /// Menue „Mehr“; breit bleiben sie als Symbole.
-  List<Widget> _schmalOderBreit(BuildContext context, List<IconButton> knoepfe) {
-    if (Fensterklasse.von(context) != Fensterklasse.kompakt) return knoepfe;
+  List<Widget> _schmalOderBreit(BuildContext context, List<IconButton> knoepfe, {List<Widget> immer = const []}) {
+    if (Fensterklasse.von(context) != Fensterklasse.kompakt) return [...immer, ...knoepfe];
     return [
+      ...immer,
       PopupMenuButton<int>(
         tooltip: 'Mehr',
         icon: const Icon(Icons.more_vert),
-        onSelected: (i) => knoepfe[i].onPressed?.call(),
+        onCanceled: _steuerung.fokus,
+        onSelected: (i) {
+          knoepfe[i].onPressed?.call();
+          _steuerung.fokus();
+        },
         itemBuilder: (_) => [
           for (var i = 0; i < knoepfe.length; i++)
             PopupMenuItem(
@@ -499,9 +721,45 @@ class _BildschirmSeiteState extends State<BildschirmSeite> {
 
   @override
   void dispose() {
+    _ablageTakt?.cancel();
+    BedienEinstellung.i.removeListener(_ablageSchalten);
+    WidgetsBinding.instance.removeObserver(this);
+    _steuerung.dispose();
     _kanalWarten?.cancel();
     _abo?.cancel();
     _spice.trennen();
     super.dispose();
   }
+}
+
+/// Die Gesten in Kurzform (Hilfe beim ersten Start und in den Einstellungen).
+class GestenHilfe extends StatelessWidget {
+  const GestenHilfe({super.key});
+
+  static const zeilen = [
+    (Icons.touch_app, 'Tippen', 'Klick'),
+    (Icons.ads_click, 'Zweimal tippen', 'Doppelklick'),
+    (Icons.back_hand_outlined, 'Lange drücken', 'Rechtsklick'),
+    (Icons.swipe, 'Ziehen', 'Markieren, verschieben'),
+    (Icons.swipe_vertical, 'Zwei Finger ziehen', 'Scrollen'),
+    (Icons.pinch, 'Zwei Finger spreizen', 'Vergrössern, dann mit einem Finger verschieben'),
+    (Icons.keyboard, 'Tastatur oben', 'Tippen, dazu Esc, Strg, Pfeile, F-Tasten'),
+  ];
+
+  @override
+  Widget build(BuildContext context) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (final (icon, geste, wirkung) in zeilen)
+            ListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(icon),
+              title: Text(geste),
+              subtitle: Text(wirkung),
+            ),
+          Text('Touchpad-Modus und diese Hilfe: Einstellungen (Regler oben).',
+              style: Theme.of(context).textTheme.bodySmall),
+        ],
+      );
 }

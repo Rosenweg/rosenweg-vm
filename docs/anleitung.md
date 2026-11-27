@@ -13,6 +13,28 @@ Proxmox-Cluster des Rosenwegs und öffnet ihren Bildschirm direkt in der App.
 4. Funktioniert im Haus und unterwegs gleich – die Verbindung baut die App
    selbst auf, ohne eigenes VPN.
 
+## Auf Handy und Tablet
+
+- **Tastatur** (Knopf oben, immer sichtbar): öffnet die Bildschirmtastatur
+  und darüber eine Leiste mit Esc, Tab, Strg, Alt, AltGr, Win, ⇧, Pfeilen,
+  Pos1/Ende, Bild auf/ab, ⌫, Entf, F1–F12 und Strg+Alt+Entf. Strg, Alt …
+  leuchten nach dem Antippen und gelten für den nächsten Tastendruck
+  (z. B. Strg, dann „c“ = Strg+C). Getippt wird in der Belegung des
+  Computers (Einstellungen → Belegung).
+- **Finger:** Tippen = Klick, zweimal tippen = Doppelklick, lange drücken =
+  Rechtsklick (vibriert), ziehen = markieren/verschieben, zwei Finger ziehen
+  = scrollen, zwei Finger spreizen = vergrössern (dann verschiebt ein Finger
+  das Bild; „100 %“ oben rechts zeigt wieder alles).
+- **Einstellungen** (Regler oben): Berührung „Direkt“ oder „Touchpad“
+  (der Finger schiebt einen Mauszeiger), Zwischenablage teilen, Auflösung
+  anpassen, Gesten anzeigen.
+- **Auflösung und Zwischenablage** brauchen im Computer den SPICE-Agent
+  (Linux: `spice-vdagent`, Windows: SPICE Guest Tools). Ohne ihn bleibt die
+  Auflösung des Computers und das Bild wird eingepasst.
+- **Ordner freigeben** auf Android: einmal „Zugriff auf alle Dateien“
+  erlauben, dann Downloads, Dokumente, Bilder, Kamera oder den ganzen
+  Speicher wählen. Auf iPhone/iPad geht es noch nicht.
+
 ## Installation und Stand
 
 | Plattform | Stand | Bezug |
