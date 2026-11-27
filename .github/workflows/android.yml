@@ -141,6 +141,8 @@ jobs:
             # Quellarchive des SPICE-Stapels (~1 GB GStreamer-Paket) bleiben hier liegen
             echo "RW_STAPEL_QUELLEN=$G/spice-stapel-quellen"
           } >> "$GITHUB_ENV"
+          # Git-Abhaengigkeiten (rosenweg_basis) nie aus dem Cache: ein alter pub-cache/git loeste sie ohne Abhaengigkeiten auf ("Unable to satisfy pubspec.yaml using pubspec.lock", 27.11.2026)
+          rm -rf "$C/pub-cache/git"
 
       - name: SPICE-Stapel
         run: native/spice-stapel/bauen.sh android ${{ matrix.abi }}
