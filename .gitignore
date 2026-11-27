@@ -56,3 +56,6 @@ app.*.map.json
 # Debian-Paket (linux/paket/bauen.sh)
 /linux/paket/out/
 /linux/paket/arbeit/
+
+# Lokale Basis (../rosenweg-basis), nicht einchecken
+pubspec_overrides.yaml

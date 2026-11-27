@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import 'package:flutter/material.dart';
-import 'package:rosenweg_basis/rosenweg_basis.dart' show AnmeldeArt, zeigeAnmeldung;
+import 'package:rosenweg_basis/rosenweg_basis.dart' show AnmeldeArt, Fensterklasse, RosenwegGeruest, zeigeAnmeldung;
 
 import '../app_zustand.dart';
 import '../netz/netzlage.dart';
@@ -9,6 +9,8 @@ import 'bildschirm_seite.dart';
 
 /// "Meine Computer": eine Liste, ein Tipp oeffnet den Bildschirm.
 /// Projektregel: einfach bedienbar, keine Proxmox-Begriffe.
+/// Gerüst aus rosenweg_basis: am Desktop steht die Liste mit lesbarer Breite
+/// in der Mitte, auf dem Handy wie bisher ueber die ganze Breite.
 class StartSeite extends StatelessWidget {
   const StartSeite({super.key, required this.zustand});
   final AppZustand zustand;
@@ -17,41 +19,39 @@ class StartSeite extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListenableBuilder(
       listenable: zustand,
-      builder: (context, _) => Scaffold(
-        appBar: AppBar(
-          title: const Text('Meine Computer'),
-          actions: [
-            _LageAnzeige(zustand: zustand),
-            if (zustand.phase == Phase.liste)
-              IconButton(
-                tooltip: 'Liste neu laden',
-                icon: const Icon(Icons.refresh),
-                onPressed: zustand.aktualisieren,
-              ),
-            PopupMenuButton<String>(
-              tooltip: 'Konto',
-              icon: const Icon(Icons.account_circle_outlined),
-              itemBuilder: (_) {
-                // Immer der echte Stand der Sitzung (rosenweg_basis), nie eine Vermutung.
-                final st = zustand.sitzung.stand;
-                return [
-                  if ((st.name ?? '').isNotEmpty) PopupMenuItem(enabled: false, child: Text(st.name!)),
-                  PopupMenuItem(enabled: false, child: Text(st.art.text)),
-                  const PopupMenuItem(value: 'anmeldung', child: Text('Anmeldung')),
-                  const PopupMenuItem(value: 'ueber', child: Text('Über diese App')),
-                  if (st.angemeldet && st.art != AnmeldeArt.geteiltesTelefon)
-                    const PopupMenuItem(value: 'ab', child: Text('Abmelden')),
-                ];
-              },
-              onSelected: (wahl) => switch (wahl) {
-                'anmeldung' => zeigeAnmeldung(context, zustand.sitzung),
-                'ueber' => _ueber(context),
-                _ => zustand.abmelden(),
-              },
+      builder: (context, _) => RosenwegGeruest(
+        titel: const Text('Meine Computer'),
+        aktionen: [
+          _LageAnzeige(zustand: zustand),
+          if (zustand.phase == Phase.liste)
+            IconButton(
+              tooltip: 'Liste neu laden',
+              icon: const Icon(Icons.refresh),
+              onPressed: zustand.aktualisieren,
             ),
-          ],
-        ),
-        body: _inhalt(context),
+          PopupMenuButton<String>(
+            tooltip: 'Konto',
+            icon: const Icon(Icons.account_circle_outlined),
+            itemBuilder: (_) {
+              // Immer der echte Stand der Sitzung (rosenweg_basis), nie eine Vermutung.
+              final st = zustand.sitzung.stand;
+              return [
+                if ((st.name ?? '').isNotEmpty) PopupMenuItem(enabled: false, child: Text(st.name!)),
+                PopupMenuItem(enabled: false, child: Text(st.art.text)),
+                const PopupMenuItem(value: 'anmeldung', child: Text('Anmeldung')),
+                const PopupMenuItem(value: 'ueber', child: Text('Über diese App')),
+                if (st.angemeldet && st.art != AnmeldeArt.geteiltesTelefon)
+                  const PopupMenuItem(value: 'ab', child: Text('Abmelden')),
+              ];
+            },
+            onSelected: (wahl) => switch (wahl) {
+              'anmeldung' => zeigeAnmeldung(context, zustand.sitzung),
+              'ueber' => _ueber(context),
+              _ => zustand.abmelden(),
+            },
+          ),
+        ],
+        inhalt: _inhalt(context),
       ),
     );
   }
@@ -75,12 +75,18 @@ class StartSeite extends StatelessWidget {
         if (zustand.computer.isEmpty) {
           return const _Hinweis(text: 'Fuer Sie ist noch kein Computer freigegeben.');
         }
-        return ListView.separated(
+        final breit = Fensterklasse.von(context).istBreit;
+        final liste = ListView.separated(
+          shrinkWrap: breit,
+          physics: breit ? const NeverScrollableScrollPhysics() : null,
           padding: const EdgeInsets.symmetric(vertical: 8),
           itemCount: zustand.computer.length,
           separatorBuilder: (_, _) => const Divider(height: 1),
           itemBuilder: (context, i) => _Zeile(c: zustand.computer[i], zustand: zustand),
         );
+        // Desktop: die Liste als Karte mit Abstand, nicht randlos ueber das Fenster.
+        if (!breit) return liste;
+        return SingleChildScrollView(padding: const EdgeInsets.all(24), child: Card(child: liste));
     }
   }
 }
