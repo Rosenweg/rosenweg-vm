@@ -38,7 +38,7 @@ Was die App kann:
 |---|---|---|
 | Linux (Debian 13, amd64) | Paket `rosenweg-vm` (.deb) gebaut | Stationen: über os-stationen; sonst [rosenweg4303.ch/apps](https://www.rosenweg4303.ch/apps) |
 | macOS (arm64, ab macOS 26) | DMG gebaut, ad hoc signiert | [rosenweg4303.ch/apps](https://www.rosenweg4303.ch/apps) |
-| Windows | noch nicht gebaut (Plan: spice-glib aus MSYS2, USB über UsbDk) | – |
+| Windows (x64, ab Windows 10 1809) | Installer gebaut (Inno Setup, pro Person ohne Administratorrechte, `/ALLUSERS` für die Verteilung per GPO), unsigniert | [rosenweg4303.ch/apps](https://www.rosenweg4303.ch/apps) |
 | Android | Tunnel baut; SPICE-Stapel fürs NDK fehlt noch | – |
 | iOS / iPadOS | Tunnel baut; ohne USB (iOS erlaubt es nicht) | – |
 
@@ -211,3 +211,5 @@ Nur Namen, nie Werte.
 ## Lizenz
 
 GPL-3.0-or-later, siehe [LICENSE](LICENSE). Fremdbibliotheken (spice-glib, GLib, usbredir, libusb unter LGPL, dynamisch gelinkt; miniaudio, wireguard-go, gVisor) in [LIZENZEN.md](LIZENZEN.md).
+
+Windows: Der Installer legt die Microsoft-C++-Laufzeit (`msvcp140.dll`, `vcruntime140.dll`, `vcruntime140_1.dll` aus dem Visual-Studio-Ordner `VC\Redist\MSVC\<Version>\x64\Microsoft.VC14x.CRT`) unverändert neben `rosenweg_vm.exe`. Microsoft erlaubt diese app-lokale Weitergabe als „Distributable Code“ nach den Lizenzbedingungen von Visual Studio; ohne sie startet die App auf einem frischen Windows nicht, und `vc_redist.x64.exe` bräuchte Administratorrechte. Version und Dateien stehen im Installationsordner unter `Lizenzen/BIBLIOTHEKEN.txt`.

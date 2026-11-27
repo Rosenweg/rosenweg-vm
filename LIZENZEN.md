@@ -19,6 +19,7 @@ die Kennung `SPDX-License-Identifier: GPL-3.0-or-later`.
 | wireguard-go | MIT | statisch (Go) in `librwtunnel` und `vm-gateway` | Lizenztext beilegen |
 | gVisor (netstack) | Apache-2.0 | statisch (Go) | Lizenz- und NOTICE-Text beilegen; mit GPL-3 vereinbar |
 | golang.org/x/crypto, x/net, x/sys | BSD-3-Clause | statisch (Go) | Lizenztext beilegen |
+| Microsoft Visual C++ Laufzeit (msvcp140, vcruntime140, vcruntime140_1) | Microsoft-Software-Lizenzbedingungen (Visual Studio), Distributable Code | nur Windows: unveränderte DLLs app-lokal neben der exe | nicht verändern; nur zusammen mit der App weitergeben |
 | Flutter, Dart-Pakete (ffi, crypto, url_launcher, flutter_secure_storage) | BSD-3-Clause | statisch/eingebettet | Lizenztext beilegen (Flutter erzeugt die Liste selbst: `showLicensePage`) |
 
 ## Warum dynamisch und warum GPL
@@ -48,7 +49,8 @@ jeder mitgelieferten Bibliothek aus `Contents/Frameworks`).
 
 Windows: im Installationsordner unter `Lizenzen/` (LICENSE, diese Datei,
 miniaudio, `BIBLIOTHEKEN.txt` mit MSYS2-Paket und Version jeder DLL; Quelltext
-über die PKGBUILDs auf packages.msys2.org). UsbDk (Apache-2.0) wird nur auf
+über die PKGBUILDs auf packages.msys2.org; dazu die Microsoft-C++-Laufzeit
+mit Version, app-lokal als Distributable Code). UsbDk (Apache-2.0) wird nur auf
 Wunsch mitinstalliert, als unverändertes MSI von Daynix.
 
 Android: `libspiceglib.so` je ABI fasst spice-glib, GLib, GStreamer-Kern,
