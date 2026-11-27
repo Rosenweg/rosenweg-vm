@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:rosenweg_basis/rosenweg_basis.dart';
 
@@ -24,12 +26,19 @@ enum Phase {
 /// Der Ablauf hinter dem Anmeldetor an einer Stelle:
 ///   angemeldet (RosenwegSitzung) → Tunnel zum vm-gateway → Liste
 class AppZustand extends ChangeNotifier {
-  AppZustand(this.sitzung) {
-    netz = Netzlage(sitzung.zugang)..addListener(notifyListeners);
+  /// [netz] und [aufbauZeit] nur fuer Tests anders.
+  AppZustand(this.sitzung, {Netzlage? netz, this.aufbauZeit = const Duration(seconds: 90)}) {
+    this.netz = (netz ?? Netzlage(sitzung.zugang))..addListener(notifyListeners);
   }
 
   final RosenwegSitzung sitzung;
   late final Netzlage netz;
+
+  /// Hoechstens so lange steht "Sichere Verbindung ins Haus wird aufgebaut …"
+  /// (27.11.2026, A37: die Anzeige blieb ohne Ende stehen). Danach Fehler mit
+  /// "Nochmals". Grosszuegig: Anmeldung erneuern, API mit Wiederholungen,
+  /// Handshake intern und extern brauchen zusammen selten mehr als 30 s.
+  final Duration aufbauZeit;
 
   Phase phase = Phase.tunnel;
 
@@ -92,7 +101,13 @@ class AppZustand extends ChangeNotifier {
         return;
       }
       _setzen(Phase.tunnel);
-      await netz.aufbauen();
+      await netz.aufbauen().timeout(aufbauZeit, onTimeout: () async {
+        // Laeuft der Aufbau im Hintergrund weiter, verwirft ihn die Netzlage
+        // (abbauen zaehlt den Versuch weiter) und schliesst einen schon offenen Tunnel.
+        await netz.abbauen();
+        throw TunnelFehler('Zeitueberschreitung: nach ${aufbauZeit.inSeconds} s keine Verbindung (Anmeldung, API oder Gateway)',
+            technisch: true);
+      });
       if (_weg) {
         // Seite schon weg (abgemeldet, waehrend der Tunnel entstand): gleich wieder zu.
         await netz.abbauen();
@@ -101,7 +116,7 @@ class AppZustand extends ChangeNotifier {
       await aktualisieren();
     } on TunnelFehler catch (e) {
       if (e.status == 401) {
-        _abgelehnt();
+        _abgelehnt(e.text);
         return;
       }
       _fehler(e);
@@ -119,7 +134,7 @@ class AppZustand extends ChangeNotifier {
     } on GatewayFehler catch (e) {
       if (e.status == 401) {
         await netz.abbauen();
-        _abgelehnt();
+        _abgelehnt(e.text);
         return;
       }
       _fehler(e);
@@ -131,8 +146,15 @@ class AppZustand extends ChangeNotifier {
   /// Anmeldung trotz Erneuern abgelehnt (abgelaufen, widerrufen, Karte
   /// entzogen): die Sitzung meldet einmal still neu an (Kerberos), sonst
   /// zeigt das Anmeldetor den Anmeldeschirm. Diese Seite wird dabei neu gebaut.
-  void _abgelehnt() {
-    Protokoll.schreiben('Anmeldung abgelehnt (401)');
+  ///
+  /// Gilt die Anmeldung fuer die Sitzung aber weiter (Android: Kotlin haelt
+  /// die Karten-Sitzung, nur API oder Gateway lehnen ab — 27.11.2026, alter
+  /// Gateway ohne rw_app_), baut niemand die Seite neu. Darum zuerst der
+  /// Fehler mit "Nochmals", nie stehen bleiben in [Phase.tunnel].
+  void _abgelehnt(String grund) {
+    Protokoll.schreiben('Anmeldung abgelehnt (401): $grund');
+    _setzen(Phase.fehler, 'Die Anmeldung wurde für die Computer nicht angenommen. Bitte nochmals versuchen; '
+        'hilft das nicht, abmelden und neu anmelden.', '401: $grund');
     sitzung.nichtMehrAngemeldet();
   }
 
