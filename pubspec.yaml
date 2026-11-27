@@ -40,6 +40,15 @@ dependencies:
   crypto: ^3.0.8
   connectivity_plus: ^7.3.2
   file_selector: ^1.1.0
+  # Gemeinsame Basis der Rosenweg-Apps: hier das Gerüst fuer Handy und
+  # Desktop (RosenwegGeruest) und das Thema. Privates Repo: in CI mit
+  # BASIS_TOKEN. Lokal mit ../rosenweg-basis: pubspec_overrides.yaml (nicht
+  # eingecheckt).
+  rosenweg_basis:
+    git:
+      url: https://github.com/Rosenweg/rosenweg-basis.git
+      # Gerüst (rosenweg-basis PR #9); nach dem Tag v0.3.0 hier v0.3.0.
+      ref: 25296f77a7e03d768693323eabd59e409ae77c17
 
 dev_dependencies:
   flutter_test:

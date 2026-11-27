@@ -70,6 +70,8 @@ static void my_application_activate(GApplication* application) {
   }
 
   gtk_window_set_default_size(window, 1280, 720);
+  // Kleiner geht die Bedienung nicht mehr sinnvoll (Handy-Layout ab 400 px).
+  gtk_widget_set_size_request(GTK_WIDGET(window), 400, 560);
   set_window_icon(window);
 
   g_autoptr(FlDartProject) project = fl_dart_project_new();

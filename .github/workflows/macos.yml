@@ -46,6 +46,11 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
 
+      - uses: ./.github/actions/basis-zugang
+        with:
+          token: ${{ secrets.BASIS_TOKEN }}
+          deploy-key: ${{ secrets.BASIS_DEPLOY_KEY }}
+
       - name: MacPorts mit spice-gtk
         env:
           GH_TOKEN: ${{ github.token }}

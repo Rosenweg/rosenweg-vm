@@ -4,6 +4,7 @@ import 'dart:ui' show AppExitResponse, PlatformDispatcher;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:rosenweg_basis/rosenweg_basis.dart' show rosenwegThema;
 
 import 'app_zustand.dart';
 import 'native/rwtunnel.dart';
@@ -89,8 +90,10 @@ class _RosenwegVmState extends State<RosenwegVm> {
     return MaterialApp(
       title: 'Rosenweg Virtuelle Computer',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(colorSchemeSeed: const Color(0xFF8B1E3F), useMaterial3: true),
-      darkTheme: ThemeData(colorSchemeSeed: const Color(0xFF8B1E3F), brightness: Brightness.dark, useMaterial3: true),
+      // Thema aus rosenweg_basis (gleicher Grundton #8B1E3F; Dialoge am
+      // Desktop hoechstens 560 px breit).
+      theme: rosenwegThema(Brightness.light),
+      darkTheme: rosenwegThema(Brightness.dark),
       home: StartSeite(zustand: _zustand),
     );
   }
