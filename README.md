@@ -69,8 +69,11 @@ Weitere Grenzen: höchstens 5 Geräte je Person; der Benutzername in Authentik (
 | Anmelden | Anmeldeschirm aus rosenweg_basis: Karte, QR, Handy oder Konto; still per Kerberos an Stationen und in der Domäne; mit Konto danach still, bis die letzte Browser-Anmeldung 30 Tage her ist |
 | Computer öffnen | in „Meine Computer“ antippen |
 | Ausgeschalteter Computer | antippen → „einschalten?“ |
-| Wo bin ich | Chip oben rechts: „Im Haus“ oder „Unterwegs · sicher verbunden“ |
-| Im Bildschirm | Leiste mit Ton, Mikrofon, USB, Strg+Alt+Entf |
+| Wo bin ich | Chip oben rechts: „Im Haus“ oder „Unterwegs · sicher verbunden“ (schmales Fenster: nur das Symbol, Text beim Antippen) |
+| Im Bildschirm | Leiste mit Ton, Mikrofon, USB, Strg+Alt+Entf (schmales Fenster: im Menü „Mehr“) |
+| Fehler | ein verständlicher Satz und „Nochmals“; das Technische zugeklappt unter „Details“ |
+| App nochmals starten | es gibt nur ein Fenster: ein zweiter Start holt das offene nach vorn (Windows, Linux; macOS von sich aus) |
+| Über diese App | Version und Build, Lizenz, Quelltext |
 | Ordner statt USB-Stick | „Ordner freigeben“ (SPICE-WebDAV, im Gast `spice-webdavd` bzw. SPICE Guest Tools) |
 
 Das Mikrofon ist aus, bis man es einschaltet – ein Gast kann nicht ungefragt mithören. Unter macOS bietet die App USB-Geräte mit Systemtreiber (Stick, Tastatur, Maus) gar nicht an.
@@ -193,6 +196,18 @@ Mehr: [docs/ci.md](docs/ci.md).
 | Haupt-API (Rosenweg/Website) | `POST /api/apps/tunnel`, `DELETE /api/apps/tunnel/:geraet` |
 | Proxmox je Computer | Anzeige SPICE (`vga: qxl`), Ton `ich9-intel-hda,driver=spice`, `usb0: spice`; im Gast `spice-vdagent` bzw. SPICE Guest Tools |
 | GitHub | Repo in die Runner-Gruppe `rosenweg-privat` |
+| Windows-PCs der Domäne | **nur per GPO verteilen, mit `/VERYSILENT /ALLUSERS`** (siehe unten) |
+
+### Windows-PCs der Domäne (AppLocker)
+
+AppLocker lässt normale Benutzer dort nur Programme aus `%PROGRAMFILES%` und `%WINDIR%` starten. Die Installation pro Person (`%LOCALAPPDATA%\Programs`) wird geblockt – und ebenso der eingebaute Updater, weil er den Installer aus dem Profil startet. Darum:
+
+- Verteilen per GPO (Software-Installation bzw. Startskript des Computers) mit
+  `Rosenweg-Virtuelle-Computer-<v>-Windows.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /ALLUSERS`
+  → `C:\Program Files\Rosenweg Virtuelle Computer`. Neue Fassungen genauso.
+- Die App erkennt das (läuft aus Program Files) und lässt ihren Updater aus, ohne Hinweis. Zusätzlich kann die GPO `HKLM\Software\Policies\Rosenweg` (oder `HKLM\Software\Rosenweg`), Wert `Verwaltet` = 1 (DWORD) setzen.
+- Sonst gilt die Regel: Updater an, ausser auf Rosenweg-Stationen und auf Telefonen mit Rosenweg Gerät.
+- „Für alle Benutzer“ bietet der Installer nur auf der Befehlszeile an, nicht im Dialog – Heim-Installationen bleiben pro Person und bekommen ihre Updates.
 
 Mehr: [docs/authentik-und-server.md](docs/authentik-und-server.md).
 

@@ -176,7 +176,7 @@ class RwSpice {
 
     try {
       final r = _verbinden(s(host), port, tlsPort, s(passwort), s(proxy), s(ca), s(hostSubject));
-      if (r != 0) throw StateError('Verbindungsangaben unvollstaendig');
+      if (r != 0) throw StateError('Verbindungsangaben unvollständig');
     } finally {
       // rwspice kopiert alles; Ticket nicht laenger als noetig liegen lassen.
       for (final p in zeiger) {

@@ -114,7 +114,7 @@ class Netzlage extends ChangeNotifier {
       spiceProxy = null;
       lage = Lage.keinZugang;
       notifyListeners();
-      throw TunnelFehler('Das Haus antwortet nicht. Bitte spaeter nochmals versuchen.');
+      throw TunnelFehler('Das Haus antwortet nicht. Bitte später nochmals versuchen.');
     }
     gateway = g;
     lage = l;
