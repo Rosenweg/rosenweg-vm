@@ -21,7 +21,7 @@ class StartSeite extends StatelessWidget {
         appBar: AppBar(
           title: const Text('Meine Computer'),
           actions: [
-            _LageAnzeige(netz: zustand.netz),
+            _LageAnzeige(zustand: zustand),
             if (zustand.phase == Phase.liste)
               IconButton(
                 tooltip: 'Liste neu laden',
@@ -134,25 +134,46 @@ class _Zeile extends StatelessWidget {
   }
 }
 
-/// Kurz und klar: im Haus / unterwegs (sicher verbunden).
+/// Kurz und klar, was gerade ist: im Haus / unterwegs (sicher verbunden) —
+/// und solange es keine Verbindung gibt, warum nicht. Frueher stand hier vor
+/// jeder Verbindung "Verbindung wird aufgebaut …", auch wenn die App nur auf
+/// den Knopf "Anmelden" wartete (Pruefung desktop-test, 27.11.2026).
 class _LageAnzeige extends StatelessWidget {
-  const _LageAnzeige({required this.netz});
-  final Netzlage netz;
+  const _LageAnzeige({required this.zustand});
+  final AppZustand zustand;
 
   @override
   Widget build(BuildContext context) {
-    final (icon, farbe) = switch (netz.lage) {
+    final (icon, farbe, text) = lageAnzeige(zustand.phase, zustand.netz);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      child: Chip(avatar: Icon(icon, color: farbe, size: 18), label: Text(text)),
+    );
+  }
+}
+
+/// Symbol, Farbe und Text oben rechts. Sobald die Netzlage etwas weiss, gilt
+/// sie; vorher sagt die Phase, worauf die App wartet.
+///
+/// Seit 1.2.0 steht die Anmeldung (Anmeldetor aus rosenweg_basis) vor dieser
+/// Seite; hier bleiben nur noch Tunnel, Liste und Fehler.
+(IconData, Color, String) lageAnzeige(Phase phase, Netzlage netz) {
+  final lage = netz.lage;
+  if (lage != Lage.unbekannt) {
+    final (icon, farbe) = switch (lage) {
       Lage.imHaus => (Icons.home_outlined, Colors.green),
       Lage.unterwegs => (Icons.lock_outline, Colors.blue),
       Lage.keinZugang => (Icons.cloud_off, Colors.red),
-      Lage.unbekannt => (Icons.sync, Colors.grey),
       Lage.test => (Icons.science_outlined, Colors.orange),
+      Lage.unbekannt => (Icons.sync, Colors.grey),
     };
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      child: Chip(avatar: Icon(icon, color: farbe, size: 18), label: Text(netz.beschreibung)),
-    );
+    return (icon, farbe, netz.beschreibung);
   }
+  return switch (phase) {
+    Phase.tunnel => (Icons.sync, Colors.grey, netz.beschreibung),
+    Phase.fehler => (Icons.cloud_off, Colors.grey, 'Nicht verbunden'),
+    Phase.liste => (Icons.sync, Colors.grey, netz.beschreibung),
+  };
 }
 
 class _Hinweis extends StatelessWidget {

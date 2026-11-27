@@ -37,6 +37,9 @@ dependencies:
   ffi: ^2.2.0
   connectivity_plus: ^7.3.2
   file_selector: ^1.1.0
+  # Fuer den Linux-Pruefer vor dem Schluesselbund der Basis
+  # (lib/anmeldung/linux_schluesselbund.dart); dieselbe Fassung wie in der Basis.
+  flutter_secure_storage: ^11.2.0
   # Gemeinsame Basis der Rosenweg-Apps: Anmeldung (RosenwegSitzung,
   # AnmeldeTor: Karte, QR, Handy, Konto, still per Kerberos), Schluesselbund,
   # Protokoll, Updater, DNS-Server auf Android. Privates Repo: in CI mit
