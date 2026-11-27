@@ -99,7 +99,7 @@ LAN-Endpunkt des Gateways, sonst über den öffentlichen.
 | `linux/paket/` | Debian-Paket `rosenweg-vm` (`bauen.sh`, Bau im Container) | Shell |
 | `macos/installer/` | Release-App und DMG (`bauen.sh`) | Shell/Python |
 | `assets/logo/` | Logo in allen Grössen, `erzeugen.sh` | SVG |
-| `.github/workflows/` | `linux.yml` (eigener Runner, .deb), `macos.yml` (GitHub-Runner, DMG, nur bei Tags oder von Hand) | |
+| `.github/workflows/` | `linux.yml` (.deb), `android.yml`, `macos.yml` (DMG), `windows.yml`, `ios.yml` – alle auf GitHub-Runnern, siehe `docs/ci.md` | |
 | `docs/` | Entscheide, Plattformen, Einrichtung, Entwicklung, CI | |
 
 Mehr: [docs/architektur.md](architektur.md),

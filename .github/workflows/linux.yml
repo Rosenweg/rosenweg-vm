@@ -1,10 +1,9 @@
-# Linux-Bau auf dem eigenen Runner (CT 140 auf pve2, Debian, Gruppe rosenweg-privat).
+# Linux-Bau auf einem GitHub-Runner (ubuntu-latest) im Container debian:13,
+# nie auf einem eigenen Runner (oeffentliches Repo).
 #
-# Der Runner hat kein allgemeines sudo, nur ein eingeschraenktes apt-get.
-# Darum: Systempakete (Header fuer GTK, spice-glib, libsecret) ueber apt-get,
-# Go und Flutter als feste Versionen mit Pruefsumme in einen Cache im
-# Benutzerverzeichnis — nichts systemweit. Der Cache bleibt zwischen Laeufen
-# liegen (selbst gehosteter Runner), geladen wird nur beim ersten Mal.
+# Systempakete (Header fuer GTK, spice-glib, libsecret) ueber apt-get, Go und
+# Flutter als feste Versionen mit Pruefsumme, zwischen Laeufen im
+# actions/cache (Schluessel: Versionen + Pruefsummen, Lockdateien).
 name: Linux
 
 on:
@@ -29,28 +28,31 @@ env:
 
 jobs:
   bauen:
-    runs-on:
-      group: rosenweg-privat
-      labels: [self-hosted, Linux, X64]
+    runs-on: ubuntu-latest
+    # Debian 13 wie die Stationen (dpkg-shlibdeps, lintian, spice-glib)
+    container: debian:13
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
-
+      # vor checkout: mit git holt checkout das Repo samt .git (Stand im Paket)
       - name: Systempakete
         run: |
-          noetig="clang cmake ninja-build pkg-config xz-utils curl unzip git \
-                  libgtk-3-dev liblzma-dev libstdc++-14-dev \
-                  libspice-client-glib-2.0-dev libsecret-1-dev libjsoncpp-dev \
-                  dpkg-dev binutils patchelf librsvg2-bin file lintian"
-          fehlt=""
-          for p in $noetig; do dpkg -s "$p" >/dev/null 2>&1 || fehlt="$fehlt $p"; done
-          if [ -n "$fehlt" ]; then
-            echo "Fehlende Pakete:$fehlt"
-            sudo -n apt-get update -qq
-            sudo -n apt-get install -y -qq --no-install-recommends $fehlt
-          fi
+          apt-get update -qq
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+            ca-certificates clang gcc libc6-dev cmake ninja-build pkg-config xz-utils curl unzip git zstd \
+            libgtk-3-dev liblzma-dev libstdc++-14-dev \
+            libspice-client-glib-2.0-dev libsecret-1-dev libjsoncpp-dev \
+            dpkg-dev binutils patchelf librsvg2-bin file lintian >/dev/null
 
-      - name: Go und Flutter (Cache im Benutzerverzeichnis)
+      - uses: actions/checkout@v4
+
+      - name: Werkzeug-Cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/rosenweg-vm-ci
+          key: linux-${{ env.GO_SHA256 }}-${{ env.FLUTTER_SHA256 }}-${{ hashFiles('pubspec.lock', '**/go.sum') }}
+          restore-keys: linux-${{ env.GO_SHA256 }}-${{ env.FLUTTER_SHA256 }}-
+
+      - name: Go und Flutter (feste Versionen mit Pruefsumme)
         run: |
           set -euo pipefail
           C="$HOME/.cache/rosenweg-vm-ci"; mkdir -p "$C"
@@ -64,17 +66,13 @@ jobs:
             echo "$FLUTTER_SHA256  $C/flutter.txz" | sha256sum -c -
             mkdir -p "$C/flutter-$FLUTTER_VERSION" && tar -xJf "$C/flutter.txz" -C "$C/flutter-$FLUTTER_VERSION" --strip-components=1 && rm "$C/flutter.txz"
           fi
+          git config --global --add safe.directory "$C/flutter-$FLUTTER_VERSION"
           echo "$C/go-$GO_VERSION/bin" >> "$GITHUB_PATH"
           echo "$C/flutter-$FLUTTER_VERSION/bin" >> "$GITHUB_PATH"
           echo "GOPATH=$C/gopath" >> "$GITHUB_ENV"
           echo "GOMODCACHE=$C/gopath/pkg/mod" >> "$GITHUB_ENV"
           echo "GOTOOLCHAIN=local" >> "$GITHUB_ENV"
           echo "PUB_CACHE=$C/pub-cache" >> "$GITHUB_ENV"
-
-      - uses: ./.github/actions/basis-zugang
-        with:
-          token: ${{ secrets.BASIS_TOKEN }}
-          deploy-key: ${{ secrets.BASIS_DEPLOY_KEY }}
 
       - name: Go-Tests (Tunnel, Gateway)
         run: |
@@ -104,7 +102,8 @@ jobs:
           mkdir -p ausgabe
           cp LICENSE LIZENZEN.md build/linux/x64/release/bundle/
           tar -C build/linux/x64/release -czf ausgabe/rosenweg-vm-linux-x64.tar.gz bundle
-          cp gateway/build/vm-gateway gateway/vm-gateway.service gateway/setup.sh ausgabe/
+          cp gateway/build/vm-gateway gateway/vm-gateway.service gateway/setup.sh \
+             gateway/nftables.conf gateway/nft-adressen.beispiel.conf ausgabe/
 
       # Dasselbe .deb wie im Bau-Container (linux/paket/im-container.sh), nur
       # aus dem Buendel dieses Laufs. Die Stationen holen es mit Pruefsumme vom
@@ -127,23 +126,18 @@ jobs:
   veroeffentlichen:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: bauen
-    runs-on: [self-hosted, rosenweg]
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: write
       id-token: write
     steps:
-      # Eigener Runner: der Arbeitsordner bleibt zwischen Jobs liegen
-      # (rosenweg-salz v1.0.0: fremdes .deb mit hochgeladen). Darum vorher leeren.
-      - name: ausgabe/ leeren
-        run: rm -rf ausgabe
-
       - uses: actions/download-artifact@v4
         with:
           name: rosenweg-vm-linux
           path: ausgabe
 
-      # Ohne gh (gibt es auf dem eigenen Runner nicht), wie rosenweg-salz.
+      # Ueber github-script (REST-API), wie rosenweg-salz.
       - name: Release
         uses: actions/github-script@v7
         with:

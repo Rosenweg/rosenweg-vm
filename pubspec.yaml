@@ -42,8 +42,8 @@ dependencies:
   flutter_secure_storage: ^11.2.0
   # Gemeinsame Basis der Rosenweg-Apps: Anmeldung (RosenwegSitzung,
   # AnmeldeTor: Karte, QR, Handy, Konto, still per Kerberos), Schluesselbund,
-  # Protokoll, Updater, DNS-Server auf Android. Privates Repo: in CI mit
-  # BASIS_TOKEN. Lokal mit ../rosenweg-basis: pubspec_overrides.yaml.
+  # Protokoll, Updater, DNS-Server auf Android. Oeffentliches Repo, pub holt
+  # es ohne Token. Lokal mit ../rosenweg-basis: pubspec_overrides.yaml.
   rosenweg_basis:
     git:
       url: https://github.com/Rosenweg/rosenweg-basis.git

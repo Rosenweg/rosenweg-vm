@@ -18,11 +18,13 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 jobs:
   apps:
+    permissions:
+      contents: read
+      id-token: write   # OIDC-Token fuer /apps (kein Geheimnis)
     uses: Rosenweg/Website/.github/workflows/apps-release.yml@main
     with:
       muster: ${{ inputs.muster }}
-      runner: '["self-hosted", "rosenweg"]'
+      runner: '["ubuntu-latest"]'

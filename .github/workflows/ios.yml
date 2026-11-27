@@ -1,8 +1,9 @@
-# iOS/iPadOS-Bau ohne Signatur auf einem von GitHub gehosteten macOS-Runner.
+# iOS/iPadOS-Bau ohne Signatur auf einem von GitHub gehosteten macOS-Runner
+# (macos-latest).
 #
-# macOS-Minuten zaehlen bei privaten Repos zehnfach (und scheitern ohne
-# Guthaben/Ausgabenlimit): nur von Hand oder bei einem Tag v*, nie bei PR/Push.
-# Ohne eigenen macOS-Runner kostet jeder Lauf GitHub-Minuten.
+# Wann: von Hand, bei einem Tag v* und - solange das Repo oeffentlich ist -
+# auch bei jedem PR und Push auf main. In einem privaten Repo zaehlen
+# macOS-Minuten zehnfach, dann nur von Hand oder bei Tags.
 #
 # Job "native": SPICE-Stapel (native/spice-stapel/ios.sh: GStreamer-
 # Binaerpaket fuer iOS + spice-protocol/spice-glib mit meson) ->
@@ -11,13 +12,15 @@
 #
 # Job "app": flutter build ios --release --no-codesign, daraus eine
 # unsignierte .ipa (Payload/Runner.app). Installieren kann man die erst nach
-# dem Signieren (Apple Developer Program, siehe docs/plattformen.md). Braucht
-# BASIS_TOKEN (private Basis Rosenweg/rosenweg-basis). Nicht an /apps: /apps
+# dem Signieren (Apple Developer Program, siehe docs/plattformen.md). Keine
+# Secrets (rosenweg-basis ist oeffentlich). Nicht an /apps: /apps
 # kennt kein iOS, und ohne Signatur liesse sich die Datei nicht installieren.
 name: iOS
 
 on:
+  pull_request:
   push:
+    branches: [main]
     tags: ['v*']
   workflow_dispatch:
 
@@ -34,7 +37,9 @@ env:
 
 jobs:
   native:
-    runs-on: macos-26
+    # privat nur von Hand oder bei Tags (Minuten), oeffentlich immer
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v') || github.event.repository.private == false
+    runs-on: macos-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -86,7 +91,7 @@ jobs:
 
   app:
     needs: native
-    runs-on: macos-26
+    runs-on: macos-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -100,11 +105,6 @@ jobs:
         with:
           name: ios-native
           path: build/ios-native
-
-      - uses: ./.github/actions/basis-zugang
-        with:
-          token: ${{ secrets.BASIS_TOKEN }}
-          deploy-key: ${{ secrets.BASIS_DEPLOY_KEY }}
 
       - name: App bauen (ohne Signatur)
         run: |
