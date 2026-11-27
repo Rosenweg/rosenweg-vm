@@ -1,0 +1,28 @@
+# Release-Dateien nachtraeglich an /apps schicken (www.rosenweg4303.ch/apps).
+# Fuer Dateien, die nicht der Release-Workflow selbst hochlaedt, z.B. das lokal
+# auf einem Mac gebaute DMG (macos/installer/bauen.sh, dann
+# `gh release upload v1.2.3 build/macos-installer/*.dmg`):
+#
+#   gh workflow run apps.yml -R Rosenweg/rosenweg-vm --ref v1.2.3 -f muster='*.dmg'
+#
+# Laeuft fuer den Tag (--ref), deshalb muss diese Datei im getaggten Commit liegen.
+name: Auf /apps
+
+on:
+  workflow_dispatch:
+    inputs:
+      muster:
+        description: Welche Release-Dateien (gh release download -p), eines pro Zeile
+        type: string
+        default: '*.dmg'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  apps:
+    uses: Rosenweg/Website/.github/workflows/apps-release.yml@main
+    with:
+      muster: ${{ inputs.muster }}
+      runner: '["self-hosted", "rosenweg"]'
