@@ -177,12 +177,17 @@ Mehr: [docs/entwicklung.md](docs/entwicklung.md).
 
 | Workflow | Runner | Ergebnis |
 |---|---|---|
-| `linux.yml` | eigener Runner, Gruppe `rosenweg-privat` | Go-Tests, `flutter analyze`/`test`, Linux-Bündel, `.deb`, vm-gateway |
-| `macos.yml` | GitHub-Runner `macos-26`, nur bei Tags oder von Hand | DMG |
+| `linux.yml` | `ubuntu-latest` im Container `debian:13` | Go-Tests, `flutter analyze`/`test`, Linux-Bündel, `.deb`, vm-gateway |
+| `android.yml` | `ubuntu-latest` | SPICE-Stapel (NDK), APK (Signatur nur bei Push/Tag) |
+| `macos.yml` | `macos-latest`, spice-gtk aus Homebrew | DMG |
+| `windows.yml` | `windows-latest`, MSYS2 | Installer mit Rauchtest |
+| `ios.yml` | `macos-latest` | unsigniertes .ipa |
+
+Alles auf GitHub-Runnern, nie auf eigenen. Windows, macOS und iOS laufen bei jedem PR und Push, solange das Repo öffentlich ist (sonst nur bei Tags oder von Hand).
 
 **Neue Version:** `version` in `pubspec.yaml` anheben, Tag `v<version>` pushen (z. B. `v1.0.1`). Beide Workflows legen ihr Paket ins GitHub-Release und schicken es an **[rosenweg4303.ch/apps](https://www.rosenweg4303.ch/apps)** (Anmeldung per GitHub-OIDC, kein gespeichertes Geheimnis).
 
-Go 1.27.4 und Flutter 3.47.5 lädt der Linux-Lauf mit fester Prüfsumme in einen Cache, nichts systemweit. Fehlen Systempakete, bricht er mit der Liste ab. Ein Windows-Runner ist geplant.
+Go 1.27.4 und Flutter 3.47.5 lädt der Linux-Lauf mit fester Prüfsumme, zwischen Läufen im `actions/cache`.
 
 Mehr: [docs/ci.md](docs/ci.md).
 
@@ -195,7 +200,6 @@ Mehr: [docs/ci.md](docs/ci.md).
 | Interner DNS | TXT `location.rosenweg4303.ch` = `Rosenweg GBT`, nur intern |
 | Haupt-API (Rosenweg/Website) | `POST /api/apps/tunnel`, `DELETE /api/apps/tunnel/:geraet` |
 | Proxmox je Computer | Anzeige SPICE (`vga: qxl`), Ton `ich9-intel-hda,driver=spice`, `usb0: spice`; im Gast `spice-vdagent` bzw. SPICE Guest Tools |
-| GitHub | Repo in die Runner-Gruppe `rosenweg-privat` |
 | Windows-PCs der Domäne | **nur per GPO verteilen, mit `/VERYSILENT /ALLUSERS`** (siehe unten) |
 
 ### Windows-PCs der Domäne (AppLocker)

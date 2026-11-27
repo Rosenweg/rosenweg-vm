@@ -22,6 +22,7 @@ GW_ENDPOINT_INTERN=
 GW_NETZ=10.243.43.0/24
 GW_STEUER_BIND=
 GW_STEUER_TOKEN=$(head -c 32 /dev/urandom | base64 | tr -d '/+=' | head -c 43)
+ROSENWEG_API_ME=
 PVE_HOSTS=pve1.rosenweg4303.ch,pve2.rosenweg4303.ch,pve3.rosenweg4303.ch
 PVE_TOKEN=
 PVE_REALM=authentik
@@ -29,8 +30,13 @@ PVE_BENUTZER_CLAIM=preferred_username
 EOT
     chgrp vm-gateway /etc/vm-gateway/env
     chmod 0640 /etc/vm-gateway/env
-    echo "Neu: /etc/vm-gateway/env — GW_ENDPOINT_INTERN, GW_STEUER_BIND und PVE_TOKEN eintragen, dann:"
+    echo "Neu: /etc/vm-gateway/env — GW_ENDPOINT_INTERN, GW_STEUER_BIND, ROSENWEG_API_ME und PVE_TOKEN eintragen, dann:"
     echo "  systemctl enable --now vm-gateway"
+fi
+# Firewall: Adressen des Hauses getrennt von nftables.conf (oeffentliches Repo)
+if [ ! -f /etc/vm-gateway/nft-adressen.conf ] && [ -f "$(dirname "$0")/nft-adressen.beispiel.conf" ]; then
+    install -m 0644 "$(dirname "$0")/nft-adressen.beispiel.conf" /etc/vm-gateway/nft-adressen.conf
+    echo "Neu: /etc/vm-gateway/nft-adressen.conf — echte Adressen eintragen (README.md, Firewall)."
 fi
 systemctl daemon-reload
 systemctl is-enabled --quiet vm-gateway 2>/dev/null && systemctl restart vm-gateway

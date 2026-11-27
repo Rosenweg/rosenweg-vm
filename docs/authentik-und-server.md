@@ -79,11 +79,6 @@ Keine Änderung. Die App nutzt wg-control nicht mehr.
 - Rechte der Person wie heute: `VM.Console` (Bildschirm), `VM.PowerMgmt`
   (Einschalten), `VM.Audit` (nur in der Liste sehen).
 
-## GitHub
-
-- Repo `rosenweg-vm` in die Runner-Gruppe `rosenweg-privat` aufnehmen
-  (docs/ci.md).
-
 ## Stationen (später)
 
 Rolle `desktop`: `85-vm-konsolen.sh` durch das Paket dieser App ersetzen,

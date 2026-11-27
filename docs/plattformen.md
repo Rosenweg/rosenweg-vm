@@ -188,8 +188,9 @@ Runner grün. Noch nicht gegen eine echte VM probiert (kein Windows-Rechner).
   liegen im Anmelde-Schlüsselbund und bleiben. App beenden, neue Fassung
   nach `/Applications` ziehen („Ersetzen“). Liegt sie im Dock, nach dem
   Ersetzen `killall Dock`, damit das neue Symbol erscheint.
-- **CI:** `.github/workflows/macos.yml` (von Hand oder bei Tag `v*`, GitHub-
-  Runner `macos-26`): MacPorts + spice-gtk, dann `bauen.sh`; DMG als
+- **CI:** `.github/workflows/macos.yml` (GitHub-Runner `macos-latest`;
+  öffentlich bei jedem PR/Push, sonst von Hand oder bei Tag `v*`): spice-gtk
+  aus Homebrew (`RW_PREFIX=$(brew --prefix)`), dann `bauen.sh`; DMG als
   Artefakt, bei Tags als Release und auf www.rosenweg4303.ch/apps (wie das
   .deb aus `linux.yml`; Anmeldung per GitHub-OIDC, kein Geheimnis). Signieren/Notarisieren nur mit den
   Secrets `MACOS_ZERTIFIKAT_P12`, `MACOS_ZERTIFIKAT_PASSWORT`,

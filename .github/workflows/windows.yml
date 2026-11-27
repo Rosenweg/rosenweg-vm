@@ -1,9 +1,10 @@
-# Windows-Installer auf einem von GitHub gehosteten Windows-Runner.
+# Windows-Installer auf einem von GitHub gehosteten Windows-Runner
+# (windows-latest), nie auf einem eigenen (oeffentliches Repo).
 #
-# Windows-Minuten zaehlen bei privaten Repos doppelt (und scheitern ohne
-# Guthaben/Ausgabenlimit): nur von Hand oder bei einem Tag v*, nie bei PR/Push.
-# Ohne eigenen Windows-Runner kostet jeder Lauf GitHub-Minuten. Eine
-# Windows-Aenderung vor dem Merge pruefen: gh workflow run windows.yml --ref <zweig>
+# Wann: von Hand, bei einem Tag v* und - solange das Repo oeffentlich ist -
+# auch bei jedem PR und Push auf main. In einem privaten Repo zaehlen die
+# Minuten doppelt, dann nur von Hand oder bei Tags
+# (gh workflow run windows.yml --ref <zweig>).
 #
 # Ablauf (siehe docs/plattformen.md, Windows):
 #   MSYS2 UCRT64 mit spice-gtk (liefert spice-glib, GLib, GStreamer-Kern,
@@ -11,13 +12,16 @@
 #   rwtunnel.dll, gcc fuer rwspice.dll, Flutter (MSVC) fuer die App,
 #   windows/installer/bauen.sh fuer Buendel, Ladetest und Inno-Setup-Installer.
 #
-# Signieren nur, wenn die Secrets gesetzt sind (sonst unsigniert, SmartScreen warnt):
+# Signieren nur bei Push auf main oder Tag v* und wenn die Secrets gesetzt sind
+# (sonst, und bei jedem PR, unsigniert; SmartScreen warnt):
 #   WINDOWS_ZERTIFIKAT_PFX       base64 eines Code-Signing-Zertifikats (.pfx)
 #   WINDOWS_ZERTIFIKAT_PASSWORT  Passwort dazu
 name: Windows
 
 on:
+  pull_request:
   push:
+    branches: [main]
     tags: ['v*']
   workflow_dispatch:
 
@@ -26,15 +30,19 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write  # Release bei Tags
-  id-token: write  # OIDC-Token fuer www.rosenweg4303.ch/apps (kein Geheimnis)
+  contents: read
 
 env:
   GO_VERSION: "1.27.4"
   FLUTTER_VERSION: "3.47.5"
+  # Signieren nur bei Push auf main oder Tag v*, nie bei pull_request (dann
+  # Debug-Signatur bzw. unsigniert; die Secrets kommen gar nicht in den Job).
+  SIGNIEREN: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) }}
 
 jobs:
   installer:
+    # privat nur von Hand oder bei Tags (Minuten), oeffentlich immer
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v') || github.event.repository.private == false
     runs-on: windows-latest
     timeout-minutes: 90
     steps:
@@ -59,11 +67,6 @@ jobs:
             mingw-w64-ucrt-x86_64-gcc
             mingw-w64-ucrt-x86_64-pkgconf
             mingw-w64-ucrt-x86_64-spice-gtk
-
-      - uses: ./.github/actions/basis-zugang
-        with:
-          token: ${{ secrets.BASIS_TOKEN }}
-          deploy-key: ${{ secrets.BASIS_DEPLOY_KEY }}
 
       - name: Inno Setup
         shell: pwsh
@@ -93,7 +96,8 @@ jobs:
           flutter test
           flutter build windows --release
 
-      - name: Signierzertifikat (falls Secret gesetzt)
+      - name: Signierzertifikat (nur Push auf main / Tag v*, falls Secret gesetzt)
+        if: env.SIGNIEREN == 'true'
         shell: pwsh
         env:
           PFX: ${{ secrets.WINDOWS_ZERTIFIKAT_PFX }}
@@ -111,7 +115,7 @@ jobs:
       - name: Buendel, Ladetest, Installer
         shell: msys2 {0}
         env:
-          RW_SIGNTOOL_PASSWORT: ${{ secrets.WINDOWS_ZERTIFIKAT_PASSWORT }}
+          RW_SIGNTOOL_PASSWORT: ${{ env.SIGNIEREN == 'true' && secrets.WINDOWS_ZERTIFIKAT_PASSWORT || '' }}
         run: windows/installer/bauen.sh --ohne-native --ohne-flutter
 
       # Installer still (pro Person) ausfuehren, App starten, 20 s laufen
@@ -131,32 +135,45 @@ jobs:
           Stop-Process -Id $p.Id -Force
           if ((Test-Path $log) -and (Select-String -Path $log -Pattern 'nicht geladen' -Quiet)) { throw 'Bibliothek nicht geladen (app.log)' }
 
+      - name: Aufraeumen
+        if: always()
+        shell: pwsh
+        run: Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $env:RUNNER_TEMP 'signieren.pfx')
+
       - uses: actions/upload-artifact@v4
         with:
           name: rosenweg-vm-windows
           path: build/windows-installer/*.exe
           retention-days: 14
 
-      - name: Release (nur bei Tag)
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: bash
+  # Bei einem Tag: Installer ins Release und auf www.rosenweg4303.ch/apps (Weg:
+  # Rosenweg/Website, pbx/README.md, "Seite /apps und App-Releases"). Eigener
+  # Job, damit nur er Schreibrechte und das OIDC-Token hat.
+  veroeffentlichen:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: installer
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write   # Release
+      id-token: write   # OIDC-Token fuer /apps (kein Geheimnis)
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: rosenweg-vm-windows
+          path: ausgabe
+
+      - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           # Linux- und macOS-Lauf legen dasselbe Release womoeglich gleichzeitig an
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
-            || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes "Windows-Installer" \
+            || gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --notes "Windows-Installer" \
             || gh release view "$GITHUB_REF_NAME" >/dev/null
-          gh release upload "$GITHUB_REF_NAME" build/windows-installer/*.exe --clobber
+          gh release upload "$GITHUB_REF_NAME" ausgabe/*.exe --clobber
 
-      # Installer auf www.rosenweg4303.ch/apps (Weg: Rosenweg/Website, pbx/README.md,
-      # "Seite /apps und App-Releases"). Die Anlage prueft Repo, Tag = Version, Pruefsumme.
       - uses: Rosenweg/Website/.github/actions/apps-release@main
-        if: startsWith(github.ref, 'refs/tags/v')
         with:
-          dateien: build/windows-installer/*.exe
-
-      - name: Aufraeumen
-        if: always()
-        shell: pwsh
-        run: Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $env:RUNNER_TEMP 'signieren.pfx')
+          dateien: ausgabe/*.exe

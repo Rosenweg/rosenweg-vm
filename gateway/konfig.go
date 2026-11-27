@@ -16,18 +16,19 @@ import (
 // Geheim sind nur GW_STEUER_TOKEN und PVE_TOKEN; die Datei ist 0600.
 type Konfig struct {
 	WgPort         int          // GW_WG_PORT, UDP, Standard 51831
-	EndpointExtern string       // GW_ENDPOINT_EXTERN, z. B. kooperation.rosenweg4303.ch:51831
-	EndpointIntern string       // GW_ENDPOINT_INTERN, z. B. 100.64.2.36:51831 (im Haus)
+	EndpointExtern string       // GW_ENDPOINT_EXTERN, z. B. vpn.example.org:51831
+	EndpointIntern string       // GW_ENDPOINT_INTERN, z. B. 192.0.2.36:51831 (im Haus)
 	Netz           netip.Prefix // GW_NETZ, nur im Tunnel, Standard 10.243.43.0/24
-	SteuerBind     string       // GW_STEUER_BIND, LAN-Adresse fuer die Haupt-API, z. B. 100.64.2.36:8080
+	SteuerBind     string       // GW_STEUER_BIND, LAN-Adresse fuer die Haupt-API, z. B. 192.0.2.36:8080
 	SteuerToken    string       // GW_STEUER_TOKEN
 	Schluessel     string       // GW_SCHLUESSEL, privater Server-Schluessel (wird angelegt)
 
 	Userinfo string // AUTHENTIK_USERINFO
 	ClientID string // APPS_CLIENT_ID, Standard rosenweg-apps
-	// ROSENWEG_API_ME, Standard http://100.64.2.52:3000/api/auth/me (Haupt-API, CT 128,
+	// ROSENWEG_API_ME, Pflicht, z. B. http://192.0.2.52:3000/api/auth/me (Haupt-API
 	// direkt im LAN wie die Steuerung; nftables.conf laesst nur dorthin): prueft die
 	// Karten-, QR- und Handy-Anmeldungen der Apps (rw_app_…), die Authentik nicht kennt.
+	// Ohne Vorgabe, damit keine Adresse des Hauses im Quelltext steht.
 	APIMe string
 
 	PVEHosts      []string // PVE_HOSTS, kommagetrennt, host[:port], Standard-Port 8006
@@ -65,7 +66,7 @@ func KonfigLesen() (Konfig, error) {
 	k.Schluessel = umgebung("GW_SCHLUESSEL", "/var/lib/vm-gateway/server.key")
 	k.Userinfo = umgebung("AUTHENTIK_USERINFO", "https://authentik.rosenweg4303.ch/application/o/userinfo/")
 	k.ClientID = umgebung("APPS_CLIENT_ID", "rosenweg-apps")
-	k.APIMe = umgebung("ROSENWEG_API_ME", "http://100.64.2.52:3000/api/auth/me")
+	k.APIMe = umgebung("ROSENWEG_API_ME", "")
 	for _, h := range strings.Split(umgebung("PVE_HOSTS", "pve1.rosenweg4303.ch,pve2.rosenweg4303.ch,pve3.rosenweg4303.ch"), ",") {
 		if h = strings.TrimSpace(h); h != "" {
 			k.PVEHosts = append(k.PVEHosts, h)
@@ -101,6 +102,8 @@ func KonfigLesen() (Konfig, error) {
 		return k, errors.New("PVE_TOKEN fehlt (Form benutzer@realm!name=geheimnis)")
 	case len(k.PVEHosts) == 0:
 		return k, errors.New("PVE_HOSTS fehlt")
+	case k.APIMe == "":
+		return k, errors.New("ROSENWEG_API_ME fehlt (z. B. http://<Haupt-API>:3000/api/auth/me)")
 	}
 	return k, nil
 }

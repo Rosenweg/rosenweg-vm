@@ -11,7 +11,7 @@
 #   1. native Bibliotheken (rwtunnel, rwspice) bauen
 #   2. flutter build macos --release
 #   3. librwtunnel, librwspice und alle abhaengigen dylibs (MacPorts unter
-#      /opt/local, ebenso Homebrew) nach Contents/Frameworks kopieren und deren
+#      /opt/local, in der CI Homebrew) nach Contents/Frameworks kopieren und deren
 #      Pfade auf @rpath umschreiben
 #   4. Architektur: universal, wenn alle Bibliotheken x86_64 mitbringen,
 #      sonst alles auf arm64 verduennen (MacPorts baut nur arm64)
@@ -28,8 +28,9 @@
 #   RW_NOTAR_KEY, RW_NOTAR_KEY_ID, RW_NOTAR_ISSUER
 #                     statt Profil: App-Store-Connect-API-Schluessel (.p8-Datei,
 #                     Key-ID, Issuer-ID) - so im GitHub-Workflow
-#   RW_PREFIX         woher die Bibliotheken kommen (Standard /opt/local); nur
-#                     fuer die Pruefung "nichts zeigt mehr nach aussen"
+#   RW_PREFIX         woher die Bibliotheken kommen (Standard /opt/local, in der
+#                     CI $(brew --prefix)); fuer die Pruefung "nichts zeigt mehr
+#                     nach aussen" und die Herkunft in BIBLIOTHEKEN.txt
 #
 # Laeuft mit dem bash 3.2 von macOS (keine assoziativen Felder).
 set -euo pipefail
@@ -148,11 +149,19 @@ cp LICENSE LIZENZEN.md native/rwspice/drittanbieter/LICENSE-miniaudio "$LIZ/"
         port=""
         if [ -f "$REG" ] && command -v sqlite3 >/dev/null; then
             port="$(sqlite3 "$REG" "select p.name||' '||p.version||'_'||p.revision from files f join ports p on f.id=p.id where f.actual_path='$(realpath "$d")' or f.path='$d' limit 1" 2>/dev/null || true)"
+            port="${port:+MacPorts $port}"
         fi
-        printf '%-34s %s\n' "$(basename "$d")" "${port:+MacPorts $port}${port:-$d}"
+        # Homebrew: <prefix>/Cellar/<formel>/<version>/...
+        case "$(realpath "$d")" in
+        "$RW_PREFIX"/Cellar/*/*/*)
+            hb="$(realpath "$d")"; hb="${hb#"$RW_PREFIX"/Cellar/}"
+            port="Homebrew ${hb%%/*} $(printf '%s' "${hb#*/}" | cut -d/ -f1)" ;;
+        esac
+        printf '%-34s %s\n' "$(basename "$d")" "${port:-$d}"
     done
     echo
-    echo "Quelltext: https://github.com/macports/macports-ports (Portfiles mit Quell-URLs);"
+    echo "Quelltext: https://github.com/macports/macports-ports bzw."
+    echo "https://github.com/Homebrew/homebrew-core (Portfiles/Formeln mit Quell-URLs);"
     echo "auf Anfrage liefert das Haus den Quelltext der ausgelieferten Fassung (siehe LIZENZEN.md)."
 } > "$LIZ/BIBLIOTHEKEN.txt"
 
@@ -179,9 +188,9 @@ else
     done
 fi
 
-# Mindestversion = hoechste minos aller Bibliotheken (MacPorts baut fuer das
-# System, auf dem es laeuft). Sonst startet die App auf aelterem macOS und
-# stuerzt erst beim Laden von spice-glib ab.
+# Mindestversion = hoechste minos aller Bibliotheken (MacPorts und die
+# Homebrew-Flaschen bauen fuer das System, auf dem sie laufen). Sonst startet
+# die App auf aelterem macOS und stuerzt erst beim Laden von spice-glib ab.
 MINOS="$(macho | while IFS= read -r f; do vtool -arch arm64 -show-build "$f" 2>/dev/null | awk '/minos/{print $2; exit}'; done | sort -t. -k1,1n -k2,2n | tail -n1)"
 PL="$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :LSMinimumSystemVersion ${MINOS:-13.0}" "$PL"

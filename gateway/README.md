@@ -39,7 +39,7 @@ diese Regeln (alle im Test `gateway_test.go` geprüft):
    - **`rw_app_…`** (Rosenweg-Karte, Anmelde-QR, „Mit dem Handy anmelden“;
      Website `api/routes/app-karte.js`): Authentik kennt sie nicht. Geprüft
      mit `GET /api/auth/me` der Haupt-API, direkt im LAN (`ROSENWEG_API_ME`,
-     Standard `http://100.64.2.52:3000/api/auth/me`, in `nftables.conf`
+     Pflicht, z. B. `http://<Haupt-API>:3000/api/auth/me`, in `nftables.conf`
      freigegeben); Proxmox-Benutzer aus
      `user.username` (= Authentik-Benutzername, von der API beim Portal-Login
      übernommen). 30 Sekunden gemerkt, damit ein Entzug schnell greift.
@@ -79,7 +79,7 @@ Authentik-Token über die Haupt-API ohnehin gibt.
 ## Einrichten (nicht gemacht)
 
 1. **CT anlegen:** Debian 13, unprivilegiert, 1 vCPU, 256 MB, eine
-   LAN-Adresse im Servernetz (z. B. VLAN 2, `100.64.2.x`). Kein nesting,
+   LAN-Adresse im Servernetz. Kein nesting,
    kein TUN-Gerät nötig.
 2. **Programm bauen und einspielen:**
    `GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o vm-gateway .`,
@@ -95,41 +95,52 @@ Authentik-Token über die Haupt-API ohnehin gibt.
    statt Token nachrüsten (kleiner Umbau in `pve.go`).
 4. **Netz und Firewall:**
    - Router/UDM: Weiterleitung **UDP 51831** von `kooperation.rosenweg4303.ch`
-     auf den CT (wie heute 51830 auf CT 113).
+     auf den CT.
    - Vom CT **hinaus** nur: `pve1..3:8006/tcp`, `pve1..3:3128/tcp`,
      `authentik.rosenweg4303.ch:443/tcp`, DNS. Sonst nichts.
-   - **Hinein** nur: `51831/udp` von überall, `8080/tcp` nur vom API-Container
-     (CT 128).
+   - **Hinein** nur: `51831/udp` von überall, `8080/tcp` nur vom
+     API-Container.
    - Umgesetzt mit nftables **im CT** (`nftables.conf`), nicht mit der
      Proxmox-Firewall; siehe Abschnitt „Firewall“.
    - pve-Knoten: 8006 und 3128 vom CT erlauben (falls die Proxmox-Firewall
      dort filtert).
    - Kein Wohnungs-VLAN braucht Zugang zum CT; der Tunnel ersetzt das.
-5. **Haupt-API:** `VM_GATEWAY_URL=http://<CT-Adresse>:8080` und
+5. **Haupt-API:** `ROSENWEG_API_ME=http://<Haupt-API>:3000/api/auth/me` in
+   `/etc/vm-gateway/env` (Pflicht, ohne startet der Dienst nicht);
+   `VM_GATEWAY_URL=http://<CT-Adresse>:8080` und
    `VM_GATEWAY_TOKEN=<GW_STEUER_TOKEN>` in `/opt/rosenweg-core/.env`.
 6. `GW_ENDPOINT_INTERN=<CT-Adresse>:51831` setzen: im Haus verbindet die App
    direkt dorthin, ohne Umweg über die öffentliche Adresse.
 
 ## Firewall
 
-`nftables.conf` (dieses Verzeichnis) ist im CT 143 als `/etc/nftables.conf`
+`nftables.conf` (dieses Verzeichnis) ist im Gateway-CT als `/etc/nftables.conf`
 eingespielt, `nftables.service` ist aktiv und beim Start eingeschaltet. nft
 geht im unprivilegierten CT ohne Sonderrechte (eigener Netz-Namensraum).
 Die Proxmox-Datacenter-Firewall bleibt aus.
 
+Die Adressen des Hauses stehen **nicht** im Repo (öffentlich), sondern im CT in
+`/etc/vm-gateway/nft-adressen.conf`; `nftables.conf` holt sie mit `include`.
+Vorlage mit Beispieladressen aus den Doku-Bereichen (`192.0.2.x`,
+`2001:db8::`): `nft-adressen.beispiel.conf` (legt `setup.sh` beim ersten Mal
+an). **Erst diese Datei anlegen, dann die neue `nftables.conf` einspielen:**
+fehlt sie, lädt nft gar nichts, und nach einem Neustart des CT wäre keine
+Regel aktiv.
+
 | Richtung | Erlaubt | Sonst |
 |---|---|---|
-| hinein | `lo`; Rückweg (established/related); `51831/udp` von überall; `8080/tcp` nur von `100.64.2.52` (CT 128); ICMPv6-Nachbarschaft/Router-Anzeigen, Ping | verworfen (drop), Protokoll `vmgw-ein-weg:` (5/min) |
-| hinaus | `lo`; Rückweg; UDP **vom** Port 51831 (WireGuard zu den Apps); DNS `100.64.2.1:53` udp/tcp; `100.64.2.20/.21/.22` (pve1..3) und deren IPv6 `2a02:16a:1400:9::20/21/22` auf `8006`, `3128`; Authentik `100.64.2.40` / `2a02:16a:1400:9::40` auf `443`; ICMPv6-Nachbarschaft | abgewiesen (reject, schnelle Fehlermeldung), Protokoll `vmgw-aus-weg:` (5/min) |
+| hinein | `lo`; Rückweg (established/related); `51831/udp` von überall; `8080/tcp` nur von `$API` (Haupt-API); ICMPv6-Nachbarschaft/Router-Anzeigen, Ping | verworfen (drop), Protokoll `vmgw-ein-weg:` (5/min) |
+| hinaus | `lo`; Rückweg; UDP **vom** Port 51831 (WireGuard zu den Apps); DNS `$DNS:53` udp/tcp; `$PVE4`/`$PVE6` (pve1..3) auf `8006`, `3128`; Authentik `$AUTH4`/`$AUTH6` auf `443`; `$API:3000` (`/api/auth/me`); ICMPv6-Nachbarschaft | abgewiesen (reject, schnelle Fehlermeldung), Protokoll `vmgw-aus-weg:` (5/min) |
 | weiter | nichts | drop |
 
-Die Adressen stehen fest in der Datei (A/AAAA von `pve1..3` und
-`authentik.rosenweg4303.ch`, Stand 26.11.2026). Ändert sich eine, die Datei
+Die Adressen sind feste A/AAAA von `pve1..3` und `authentik.rosenweg4303.ch`
+(nft löst keine Namen auf). Ändert sich eine, `/etc/vm-gateway/nft-adressen.conf`
 anpassen und `systemctl reload nftables`.
 
 Einspielen bzw. ändern (im CT):
 
 ```bash
+test -f /etc/vm-gateway/nft-adressen.conf || install -m 0644 nft-adressen.beispiel.conf /etc/vm-gateway/nft-adressen.conf   # dann echte Adressen eintragen
 install -m 0644 nftables.conf /etc/nftables.conf
 nft -c -f /etc/nftables.conf && systemctl enable --now nftables && systemctl reload nftables
 nft list chain inet vmgw ein          # Zähler: 51831, 8080, verworfen
@@ -146,11 +157,11 @@ apt update && apt full-upgrade
 systemctl reload nftables             # Datei neu laden = Ausnahme weg
 ```
 
-Geprüft am 26.11.2026 (vorher/nachher): Dienst läuft, `/gesundheit` von
-CT 128 ok, pve1..3 `8006`/`3128` offen, Authentik `userinfo` antwortet (401
-ohne Token), DNS geht; zu sind pve `22`, Authentik `22`, `1.1.1.1:443`,
-`deb.debian.org:80`; von pve3 aus sind CT-Ports `8080` und `22` zu, `51831/udp`
-kommt an (Zähler).
+Geprüft am 26.11.2026 (vorher/nachher): Dienst läuft, `/gesundheit` vom
+API-Container ok, pve1..3 `8006`/`3128` offen, Authentik `userinfo` antwortet
+(401 ohne Token), DNS geht; zu sind pve `22`, Authentik `22`, `1.1.1.1:443`,
+`deb.debian.org:80`; von einem Knoten aus sind CT-Ports `8080` und `22` zu,
+`51831/udp` kommt an (Zähler).
 
 ## Prüfen
 
