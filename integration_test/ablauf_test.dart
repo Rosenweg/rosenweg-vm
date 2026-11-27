@@ -23,7 +23,8 @@ void main() {
   binding.framePolicy = LiveTestWidgetsFlutterBindingFramePolicy.fullyLive;
 
   testWidgets('Liste -> Bildschirm -> Bild', (tester) async {
-    await tester.pumpWidget(const RosenwegVm());
+    final s = vmSitzung()..starten(); // RW_TEST_SPICE: ohne Anmeldung
+    await tester.pumpWidget(RosenwegVm(sitzung: s));
     await tester.pumpAndSettle();
     expect(find.text('Meine Computer'), findsOneWidget);
 

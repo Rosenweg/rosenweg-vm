@@ -7,7 +7,6 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"regexp"
 	"strings"
@@ -39,14 +38,7 @@ func (g *Gateway) steuerKonto(w http.ResponseWriter, r *http.Request) *Konto {
 	defer cancel()
 	k, err := g.konten.Pruefen(ctx, r.Header.Get("X-Rosenweg-Token"))
 	if err != nil {
-		status := http.StatusUnauthorized
-		if !errors.Is(err, ErrNichtAngemeldet) {
-			status = http.StatusServiceUnavailable
-		}
-		text := "Anmeldung abgelaufen"
-		if status != http.StatusUnauthorized {
-			text = "Anmeldung konnte nicht geprueft werden (Authentik nicht erreichbar)"
-		}
+		status, text := anmeldeFehler(err)
 		g.log.Schreiben(Eintrag{Aktion: "anmeldung", Ergebnis: "abgewiesen", Grund: err.Error()})
 		json200(w, status, map[string]string{"error": text})
 		return nil

@@ -2,6 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- Anmeldeschirm (rosenweg_basis): Rosenweg-Karte per Core NFC, Anmelde-QR per Kamera -->
+	<key>NFCReaderUsageDescription</key>
+	<string>Zum Anmelden mit der Rosenweg-Karte.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Zum Scannen des Anmelde-QR.</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>

@@ -50,14 +50,16 @@ Stand 25.11.2026. Aufwand grob in Personentagen (PT), ohne Store-Verfahren.
   gnome-keyring, entsperrt mit dem Passwort der Anmeldung (os-stationen,
   `roles/desktop/parts/41-schluesselbund.sh`). Vor dem ersten Lesen fragt die
   App den Dienst per `busctl` nach der Standard-Sammlung (`ReadAlias
-  default`): fehlt der Dienst oder die Sammlung, behält sie ihre Werte nur bis
-  Programmende — ohne dass libsecret ein Fenster „Neuen Schlüsselbund
-  anlegen“ öffnet — und verspricht auf der Startseite **nicht**, sich die
-  Anmeldung 30 Tage zu merken. Die stille Anmeldung über die Browser-Sitzung
+  default`, `lib/anmeldung/linux_schluesselbund.dart` vor dem Schlüsselbund
+  aus rosenweg_basis): fehlt der Dienst oder die Sammlung, behält sie ihre
+  Werte nur bis Programmende — ohne dass libsecret ein Fenster „Neuen
+  Schlüsselbund anlegen“ öffnet. Seit 1.2.0 macht der Anmeldeschirm der Basis
+  kein 30-Tage-Versprechen mehr. Die stille Anmeldung über die Browser-Sitzung
   geht trotzdem, nur die Geräte-Kennung ist bei jedem Start neu.
 - **Anzeige oben rechts:** vor der Verbindung sagt sie, worauf die App
-  wartet („Bitte anmelden“, „Anmeldung im Browser …“, „Verbindung wird
-  aufgebaut …“), danach die Netzlage (im Haus / unterwegs).
+  wartet („Verbindung wird aufgebaut …“, „Nicht verbunden“), danach die
+  Netzlage (im Haus / unterwegs). Die Anmeldung davor zeigt das Anmeldetor
+  der Basis.
 - **Stille Anmeldung (Kerberos):** an einer Station mit Domänenanmeldung
   meldet die App beim Start ohne Knopf und ohne Browser an
   (`RosenwegKonto.stillAnmelden`, SPNEGO aus rosenweg_basis
@@ -142,7 +144,7 @@ Runner grün. Noch nicht gegen eine echte VM probiert (kein Windows-Rechner).
   (Sandbox, network.client/server, audio-input, usb, user-selected
   read-write). Getestet: Anmeldung aus dem Schlüsselbund, Tunnel, „im
   Haus“-Erkennung, SPICE-Bild. Protokoll liegt dann unter
-  `~/Library/Containers/ch.rosenweg4303.vm/Data/Library/Logs/Rosenweg Virtuelle Computer/app.log`.
+  `~/Library/Containers/ch.rosenweg4303.vm/Data/Library/Logs/rosenweg-vm/app.log` (bis 1.1.0 `…/Logs/Rosenweg Virtuelle Computer/`).
 - **GStreamer:** spice-glib aus MacPorts ist dagegen gelinkt, darum liegen
   die Kernbibliotheken bei. Plugins nicht: Ton macht rwspice selbst
   (miniaudio/CoreAudio), Bild-Streams dekodiert spice-glib ohne Plugins

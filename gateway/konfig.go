@@ -25,6 +25,10 @@ type Konfig struct {
 
 	Userinfo string // AUTHENTIK_USERINFO
 	ClientID string // APPS_CLIENT_ID, Standard rosenweg-apps
+	// ROSENWEG_API_ME, Standard http://100.64.2.52:3000/api/auth/me (Haupt-API, CT 128,
+	// direkt im LAN wie die Steuerung; nftables.conf laesst nur dorthin): prueft die
+	// Karten-, QR- und Handy-Anmeldungen der Apps (rw_app_…), die Authentik nicht kennt.
+	APIMe string
 
 	PVEHosts      []string // PVE_HOSTS, kommagetrennt, host[:port], Standard-Port 8006
 	PVESpicePort  int      // PVE_SPICE_PORT, Standard 3128
@@ -61,6 +65,7 @@ func KonfigLesen() (Konfig, error) {
 	k.Schluessel = umgebung("GW_SCHLUESSEL", "/var/lib/vm-gateway/server.key")
 	k.Userinfo = umgebung("AUTHENTIK_USERINFO", "https://authentik.rosenweg4303.ch/application/o/userinfo/")
 	k.ClientID = umgebung("APPS_CLIENT_ID", "rosenweg-apps")
+	k.APIMe = umgebung("ROSENWEG_API_ME", "http://100.64.2.52:3000/api/auth/me")
 	for _, h := range strings.Split(umgebung("PVE_HOSTS", "pve1.rosenweg4303.ch,pve2.rosenweg4303.ch,pve3.rosenweg4303.ch"), ",") {
 		if h = strings.TrimSpace(h); h != "" {
 			k.PVEHosts = append(k.PVEHosts, h)

@@ -274,7 +274,7 @@ grep -v '^$' "$ARBEIT/shlibdeps.log" | sed 's/^/   /' || true
 #   einen Secret-Service-Dienst in der Sitzung; Cinnamon bringt gnome-keyring
 #   mit, darum nur empfohlen.
 DEPENDS="$SHLIBS, libpulse0 | libasound2t64, xdg-utils, libgssapi-krb5-2"
-RECOMMENDS="gnome-keyring"
+RECOMMENDS="gnome-keyring, pcscd, libpcsclite1"   # Karte am USB-Leser (Anmeldeschirm)
 
 GROESSE="$(du -sk --apparent-size "$BAUM" | cut -f1)"
 install -d -m 0755 "$BAUM/DEBIAN"

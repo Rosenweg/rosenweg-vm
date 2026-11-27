@@ -4,7 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
-import '../anmeldung/schluesselbund.dart';
+import '../vm_app.dart';
 import '../protokoll.dart';
 import 'belegungen.dart';
 
@@ -43,7 +43,7 @@ class TastaturEinstellung extends ChangeNotifier {
     if (_geladen) return;
     _geladen = true;
     try {
-      final roh = await Schluesselbund.i.lesen('tastatur');
+      final roh = await vmSpeicher.lesen('tastatur');
       if (roh == null) return;
       final j = jsonDecode(roh) as Map<String, dynamic>;
       modus = j['modus'] == 'direkt' ? TastaturModus.direkt : TastaturModus.zeichen;
@@ -64,7 +64,7 @@ class TastaturEinstellung extends ChangeNotifier {
     notifyListeners();
     Protokoll.schreiben('Tastatur: ${this.modus.name}, Gast ${this.belegung.kennung}, '
         'Cmd als Strg ${this.cmdAlsStrg}, Mac-ISO ${this.macIsoTausch}');
-    await Schluesselbund.i.setzen({
+    await vmSpeicher.setzen({
       'tastatur': jsonEncode({
         'modus': this.modus.name,
         'belegung': this.belegung.kennung,

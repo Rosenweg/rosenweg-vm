@@ -20,11 +20,12 @@
 
 ## Überblick
 
-Eine App für Linux, macOS, Windows, Android und iOS: einmal mit dem Rosenweg-Konto anmelden, die eigenen virtuellen Computer aus dem Proxmox-Cluster sehen, antippen – der Bildschirm (SPICE) erscheint mit Ton und USB direkt in der App.
+Eine App für Linux, macOS, Windows, Android und iOS: einmal anmelden (wie in allen Rosenweg-Apps), die eigenen virtuellen Computer aus dem Proxmox-Cluster sehen, antippen – der Bildschirm (SPICE) erscheint mit Ton und USB direkt in der App.
 
 Was die App kann:
 
-- **Eine Anmeldung:** nur das Rosenweg-Konto, danach 30 Tage still beim Start.
+- **Eine Anmeldung wie in allen Rosenweg-Apps:** Rosenweg-Karte, Anmelde-QR, „Mit dem Handy anmelden“ oder Rosenweg-Konto (danach 30 Tage still beim Start); an Stationen und in der Windows-Domäne still per Kerberos.
+- **Updater:** die App aktualisiert sich selbst (`RosenwegAktualisierung` aus `rosenweg_basis`); aus auf Rosenweg-Stationen, dort bringt os-stationen das Paket.
 - **Meine Computer:** zeigt nur die Computer, die Proxmox der Person erlaubt.
 - **Bildschirm:** Bild, Maus, Tastatur (Schweizer Belegung macht der Gast), Ton, Mikrofon auf Wunsch.
 - **USB:** Geräte einzeln per Schalter durchreichen, nie automatisch.
@@ -65,7 +66,7 @@ Weitere Grenzen: höchstens 5 Geräte je Person; der Benutzername in Authentik (
 
 | Was | So geht’s |
 |---|---|
-| Anmelden | „Mit Rosenweg-Konto anmelden“; danach still, bis die letzte Browser-Anmeldung 30 Tage her ist |
+| Anmelden | Anmeldeschirm aus rosenweg_basis: Karte, QR, Handy oder Konto; still per Kerberos an Stationen und in der Domäne; mit Konto danach still, bis die letzte Browser-Anmeldung 30 Tage her ist |
 | Computer öffnen | in „Meine Computer“ antippen |
 | Ausgeschalteter Computer | antippen → „einschalten?“ |
 | Wo bin ich | Chip oben rechts: „Im Haus“ oder „Unterwegs · sicher verbunden“ |
@@ -79,7 +80,10 @@ Mehr: [docs/anleitung.md](docs/anleitung.md).
 ## Ablauf und Architektur
 
 ```
-Start ─► Rosenweg-Konto (Authentik rosenweg-apps, PKCE)
+Start ─► Anmeldetor aus rosenweg_basis (RosenwegSitzung):
+         gespeichert (Konto ≤ 30 Tage, Karten-/QR-/Handy-Sitzung) → still per
+         Kerberos → sonst Anmeldeschirm (Karte, QR, Handy, Konto)
+         Token: Authentik (Konto/Kerberos) oder rw_app_… (Karte/QR/Handy)
               ▼
          POST /api/apps/tunnel (Haupt-API, nur öffentlicher Schlüssel)
               ▼
@@ -105,7 +109,7 @@ Die wichtigsten Entscheide:
 | USB | spice-glib UsbDeviceManager, `auto-connect` aus |
 | Netz | App spricht nie direkt mit Proxmox, nur mit dem eigenen vm-gateway; WireGuard läuft auf beiden Seiten im Prozess |
 | Im Haus? | TXT-Eintrag `location.rosenweg4303.ch` beim Resolver des Geräts; nur Wegwahl, nie Sicherheit (entscheidet der WireGuard-Handshake) |
-| Anmeldung | nur das Rosenweg-Konto; Tunnel-Schlüssel pro Start neu, nur im Speicher |
+| Anmeldung | ganz aus rosenweg_basis (RosenwegSitzung, AnmeldeTor); Tunnel-Schlüssel pro Start neu, nur im Speicher |
 | Tastatur | die App schickt Scancodes, die Belegung macht der Gast |
 
 Mehr: [docs/architektur.md](docs/architektur.md).
