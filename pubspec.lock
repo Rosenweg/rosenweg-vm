@@ -560,8 +560,8 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: "25296f77a7e03d768693323eabd59e409ae77c17"
-      resolved-ref: "25296f77a7e03d768693323eabd59e409ae77c17"
+      ref: "4f2cd07fdeb975a9b2721c92b2d824f3fdd3d05f"
+      resolved-ref: "4f2cd07fdeb975a9b2721c92b2d824f3fdd3d05f"
       url: "https://github.com/Rosenweg/rosenweg-basis.git"
     source: git
     version: "0.1.0"
