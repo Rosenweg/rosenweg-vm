@@ -39,6 +39,14 @@ env:
   SIGNIEREN: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) }}
 
 jobs:
+  # Runner-Wahl (Rosenweg/rosenweg-basis, runner-wahl.yml): privat immer eigene,
+  # oeffentlich eigene wenn frei oder zuschaltbar, Forks nie. macOS bleibt bei GitHub.
+  wahl:
+    uses: Rosenweg/rosenweg-basis/.github/workflows/runner-wahl.yml@main
+    secrets:
+      PAKETE_APP_ID: ${{ secrets.PAKETE_APP_ID }}
+      PAKETE_APP_KEY: ${{ secrets.PAKETE_APP_KEY }}
+
   dmg:
     # privat nur von Hand oder bei Tags (Minuten), oeffentlich immer
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v') || github.event.repository.private == false
@@ -127,8 +135,8 @@ jobs:
   # Job, damit nur er Schreibrechte und das OIDC-Token hat.
   veroeffentlichen:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: dmg
-    runs-on: ubuntu-latest
+    needs: [dmg, wahl]
+    runs-on: ${{ fromJSON(needs.wahl.outputs.linux) }}
     timeout-minutes: 15
     permissions:
       contents: write   # Release
