@@ -1,0 +1,89 @@
+# Release-Text: welche Plattformen im GitHub-Release liegen und welche fehlen.
+#
+# Jede Plattform hat ihren eigenen Workflow und laedt bei einem Tag v* ihre
+# Datei selbst ins Release (und an /apps) - das Release erscheint also mit
+# allem, was durchgelaufen ist; ein Fehlschlag bei Windows oder macOS
+# (GitHub-Runner, Minuten, Ausgabenlimit) haelt die anderen nicht auf. Dieser
+# Workflow laeuft nach jedem dieser Laeufe (und von Hand fuer einen Tag) und
+# schreibt in den Text des Release einen Abschnitt mit Dateien und fehlenden
+# Plattformen samt Grund. Der uebrige Text bleibt, wie er ist.
+# Eigener Runner ([self-hosted, rosenweg]); dort gibt es kein gh.
+name: Release-Text
+
+on:
+  workflow_run:
+    workflows: [Linux, Android, Windows, macOS]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release-Tag, z. B. v1.2.3
+        required: true
+
+concurrency:
+  group: release-text-${{ github.event.workflow_run.head_branch || inputs.tag }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # Text des Release
+  actions: read     # Laeufe der Plattform-Workflows
+
+jobs:
+  text:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.event == 'push' && startsWith(github.event.workflow_run.head_branch, 'v'))
+    runs-on: [self-hosted, rosenweg]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/github-script@v7
+        env:
+          TAG: ${{ github.event.workflow_run.head_branch || inputs.tag }}
+        with:
+          script: |
+            const repo = { owner: context.repo.owner, repo: context.repo.repo };
+            const tag = process.env.TAG;
+            // Plattform, Workflow-Datei, Dateien im Release
+            const PLATTFORMEN = [
+              { titel: 'Linux (Debian 13)', datei: 'linux.yml', passt: (n) => n.endsWith('.deb') },
+              { titel: 'Android', datei: 'android.yml', passt: (n) => n.endsWith('.apk') },
+              { titel: 'Windows', datei: 'windows.yml', passt: (n) => /\.(exe|msi)$/.test(n) },
+              { titel: 'macOS', datei: 'macos.yml', passt: (n) => n.endsWith('.dmg') },
+            ];
+            let rel;
+            try {
+              rel = (await github.rest.repos.getReleaseByTag({ ...repo, tag })).data;
+            } catch (e) {
+              if (e.status === 404) { core.notice(`Noch kein Release ${tag}.`); return; }
+              throw e;
+            }
+            const namen = rel.assets.map((a) => a.name).sort();
+            const zeilen = [];
+            const fehlt = [];
+            for (const p of PLATTFORMEN) {
+              const da = namen.filter(p.passt);
+              for (const n of da) zeilen.push(`| \`${n}\` | ${p.titel} |`);
+              if (da.length) continue;
+              const laeufe = (await github.rest.actions.listWorkflowRuns({
+                ...repo, workflow_id: p.datei, branch: tag, event: 'push', per_page: 1,
+              })).data.workflow_runs;
+              const l = laeufe[0];
+              let grund;
+              if (!l) grund = 'nicht gestartet (von Hand: Workflow mit dem Tag starten)';
+              else if (l.status !== 'completed') grund = `läuft noch ([Lauf](${l.html_url}))`;
+              else if (l.conclusion === 'success') grund = `Lauf ohne Datei ([Lauf](${l.html_url}))`;
+              else grund = `Lauf ${l.conclusion === 'failure' ? 'fehlgeschlagen (z. B. GitHub-Ausgabenlimit)' : l.conclusion}; nachholen: im [Lauf](${l.html_url}) „Re-run failed jobs“`;
+              fehlt.push(`- **${p.titel}**: ${grund}`);
+            }
+            const ANF = '<!-- rw-plattformen -->', END = '<!-- /rw-plattformen -->';
+            let abschnitt = `${ANF}\n### Plattformen\n\n| Datei | Plattform |\n|---|---|\n${zeilen.join('\n')}\n`;
+            abschnitt += fehlt.length ? `\n**Fehlt:**\n${fehlt.join('\n')}\n` : '\nAlle Plattformen da.\n';
+            abschnitt += END;
+            const alt = rel.body || '';
+            const i = alt.indexOf(ANF), j = alt.indexOf(END);
+            const body = i >= 0 && j > i
+              ? alt.slice(0, i) + abschnitt + alt.slice(j + END.length)
+              : (alt ? alt.trimEnd() + '\n\n' : '') + abschnitt;
+            if (body !== alt) await github.rest.repos.updateRelease({ ...repo, release_id: rel.id, body });
+            core.info(abschnitt);
+            if (fehlt.length) core.warning(`Release ${tag} ohne: ${fehlt.map((f) => f.split('**')[1]).join(', ')}`);
