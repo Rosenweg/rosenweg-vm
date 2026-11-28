@@ -124,3 +124,25 @@ bzw. `.../remove-token`. Sie sind eine Stunde gültig.
    anlegen. Nach dem Neustart die Profile löschen.
 4. Netz auf `vmbr2` mit fester Adresse, Wiederherstellungspartition entfernen
    und C: auf 150 GB erweitern (WinRE liegt jetzt auf C:), Werkzeuge, Runner.
+
+## Stand 28.11.2026: Nachtrag
+
+- **Aufhänger 02:58:** Das VSS-Einfrieren der Sicherung hängte Windows auf. Darum
+  `freeze-fs-on-backup=0` in der VM-Konfiguration (der Gast-Agent friert das
+  Dateisystem nicht mehr ein).
+- **Gast-Agent nach hartem Neustart:** Der Dienst `QEMU-GA` lief nach dem Boot
+  nicht (Zeitlimit 45 s beim Start). Jetzt Starttyp *Automatisch (verzögert)* mit
+  Wiederherstellung (Neustart nach 30/60/60 s). Der Runner-Dienst
+  `actions.runner.Rosenweg.win-runner` (Konto `.\gh-runner`, automatisch)
+  braucht keine Anmeldung und kam ohne sie online.
+- **Gast-Agent und PowerShell:** `qm guest exec 142 -- powershell ...` meldet
+  „Permission denied“. Der Umweg geht über `cmd.exe /c "powershell -File ..."`.
+  Lange Befehle mit `--synchronous 0` starten und das Ergebnis aus einer Logdatei
+  lesen.
+- **ATL fehlte:** `flutter_secure_storage_windows` braucht `atlstr.h`. Nachinstalliert:
+  Komponente `Microsoft.VisualStudio.Component.VC.ATL` (`setup.exe modify`).
+- **Windows-Builds von rosenweg-basis:** `app.yml` (Job `windows`) läuft auf
+  `[self-hosted, Windows, rosenweg-windows]`, ausser bei Ereignissen aus Forks
+  (dort `windows-latest`), wie der Android-Job. Testlauf mit rosenweg-wetter
+  (Bauen, Inno Setup, Rauchtest) war grün.
+- Konsole: Tastaturbelegung ist Deutsch (y/z vertauscht bei `qm sendkey`).
